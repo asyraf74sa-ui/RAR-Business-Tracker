@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ClipboardCheck, Coins, RotateCcw, Save } from 'lucide-react'
 import { Button, Card, EmptyState, PageHeader, SectionHeading, StockPill } from '../components/ui.jsx'
 import { supabase, readableError } from '../lib/supabase.js'
-import { formatQuantity, toNumber } from '../lib/format.js'
+import { formatQuantity, getRequestId, numbersEqual, rotateRequestId, toNumber } from '../lib/format.js'
 
 function StocktakeRow({ item, value, onChange }) {
   const counted = value === '' ? null : Number(value)
@@ -28,6 +28,7 @@ export default function Inventory({ data, refresh, notify }) {
   const [counts, setCounts] = useState({})
   const [saving, setSaving] = useState(false)
   const saveLock = useRef(false)
+  const requestId = useRef(getRequestId('stocktake'))
   const physicalItems = useMemo(() => data.items.filter((item) => item.kind === 'item').sort((a, b) => a.name.localeCompare(b.name)), [data.items])
   const currencyItems = useMemo(() => data.items.filter((item) => item.kind === 'currency'), [data.items])
 
@@ -37,7 +38,7 @@ export default function Inventory({ data, refresh, notify }) {
 
   const changedItems = data.items.filter((item) => {
     const counted = Number(counts[item.id])
-    return Number.isFinite(counted) && counted >= 0 && counted !== toNumber(item.stock)
+    return Number.isFinite(counted) && counted >= 0 && !numbersEqual(counted, item.stock)
   })
 
   const resetCounts = () => setCounts(Object.fromEntries(data.items.map((item) => [item.id, String(toNumber(item.stock))])))
@@ -56,33 +57,37 @@ export default function Inventory({ data, refresh, notify }) {
 
     saveLock.current = true
     setSaving(true)
-    let completed = 0
     try {
-      for (const item of changedItems) {
-        const counted = Number(counts[item.id])
-        const { data: before, error: beforeError } = await supabase.from('rar_items').select('stock').eq('id', item.id).single()
-        if (beforeError) throw new Error(`${item.name}: ${readableError(beforeError)}`)
+      const payload = changedItems.map((item) => ({ item_id: item.id, counted_stock: Number(counts[item.id]) }))
+      const { data: result, error } = await supabase.rpc('rar_reconcile_stock_batch', {
+        p_counts: payload,
+        p_event_at: new Date().toISOString(),
+        p_notes: 'Weekly stocktake',
+        p_request_id: requestId.current,
+      })
+      if (error) throw error
 
-        const expectedDelta = counted - toNumber(before.stock)
-        const { data: returnedDelta, error } = await supabase.rpc('rar_reconcile_stock', {
-          p_item_id: item.id,
-          p_counted_stock: counted,
-          p_event_at: new Date().toISOString(),
-          p_notes: 'Weekly stocktake',
+      const processed = toNumber(result)
+      const duplicate = processed < 0
+      if (Math.abs(processed) !== payload.length) throw new Error('The stocktake returned an unexpected item count.')
+
+      if (!duplicate) {
+        const { data: verified, error: verifyError } = await supabase.from('rar_items').select('id,stock').in('id', payload.map((entry) => entry.item_id))
+        const matches = !verifyError && payload.every((entry) => {
+          const row = verified?.find((item) => item.id === entry.item_id)
+          return row && numbersEqual(row.stock, entry.counted_stock)
         })
-        if (error) throw new Error(`${item.name}: ${readableError(error)}`)
-        if (Math.abs(toNumber(returnedDelta) - expectedDelta) > 0.000001) throw new Error(`${item.name}: the recorded adjustment did not match the expected discrepancy.`)
-
-        const { data: verified, error: verifyError } = await supabase.from('rar_items').select('stock').eq('id', item.id).single()
-        if (verifyError || toNumber(verified?.stock) !== counted) throw new Error(`${item.name}: the stock count could not be verified after saving.`)
-        completed += 1
+        if (!matches) throw new Error('The stocktake saved, but its final balances could not be verified. Refresh before retrying.')
       }
 
       await refresh()
-      notify('success', `Stocktake saved. ${completed} ${completed === 1 ? 'item was' : 'items were'} reconciled.`)
+      requestId.current = rotateRequestId('stocktake')
+      notify('success', duplicate
+        ? 'This stocktake was already saved. Current balances were refreshed without applying it twice.'
+        : `Stocktake saved atomically. ${payload.length} ${payload.length === 1 ? 'item was' : 'items were'} reconciled together.`)
     } catch (error) {
       await refresh()
-      notify('error', `${error.message}${completed ? ` ${completed} earlier adjustment${completed === 1 ? '' : 's'} did save; the list has been refreshed.` : ''}`)
+      notify('error', readableError(error, 'The stocktake could not be saved. No partial stocktake was applied.'))
     } finally {
       saveLock.current = false
       setSaving(false)

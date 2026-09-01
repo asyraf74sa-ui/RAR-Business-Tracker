@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarClock, CheckCircle2, CloudSun, Leaf, RefreshCw, Settings2, Sprout } from 'lucide-react'
 import { Button, Card, EmptyState, Field, MetricCard, PageHeader, SectionHeading } from '../components/ui.jsx'
-import { formatDateTime, formatQuantity, toNumber } from '../lib/format.js'
+import { formatDateTime, formatQuantity, getRequestId, numbersEqual, rotateRequestId, toNumber } from '../lib/format.js'
 import { readableError, supabase } from '../lib/supabase.js'
 
-export default function Farming({ data, user, refresh, notify }) {
+export default function Farming({ data, refresh, notify }) {
   const config = data.farmConfig
   const [settings, setSettings] = useState({ farming_accounts: '3', cycle_days: '2.5' })
   const [busyAction, setBusyAction] = useState(null)
   const actionLock = useRef(null)
+  const claimRequestId = useRef(getRequestId('farm-claim'))
+  const lastCompletedClaimAt = useRef(0)
   const farmItems = data.items.filter((item) => item.kind === 'item' && item.is_farm_item && item.active).sort((a, b) => a.name.localeCompare(b.name))
   const unitsPerItem = toNumber(config?.units_per_item_per_account, 1)
 
@@ -37,18 +39,14 @@ export default function Farming({ data, user, refresh, notify }) {
     actionLock.current = 'settings'
     setBusyAction('settings')
     try {
-      const payload = {
-        user_id: user.id,
-        farming_accounts: accounts,
-        cycle_days: cycleDays,
-        units_per_item_per_account: unitsPerItem || 1,
-        last_claim_at: config?.last_claim_at || null,
-        updated_at: new Date().toISOString(),
-      }
-      const { error } = await supabase.from('rar_farm_config').upsert(payload, { onConflict: 'user_id' })
+      const { error } = await supabase.rpc('rar_update_farm_settings', {
+        p_farming_accounts: accounts,
+        p_cycle_days: cycleDays,
+        p_units_per_item_per_account: unitsPerItem || 1,
+      })
       if (error) throw error
-      const { data: verified, error: verifyError } = await supabase.from('rar_farm_config').select('*').eq('user_id', user.id).single()
-      if (verifyError || Number(verified.farming_accounts) !== accounts || toNumber(verified.cycle_days) !== cycleDays) throw new Error('The farm settings could not be verified after saving.')
+      const { data: verified, error: verifyError } = await supabase.from('rar_farm_config').select('*').single()
+      if (verifyError || Number(verified.farming_accounts) !== accounts || !numbersEqual(verified.cycle_days, cycleDays)) throw new Error('The farm settings could not be verified after saving.')
       await refresh()
       notify('success', 'Farm settings updated.')
     } catch (error) {
@@ -61,34 +59,57 @@ export default function Farming({ data, user, refresh, notify }) {
 
   const runFarmAction = async (action) => {
     if (actionLock.current) return
-    if (farmItems.length === 0) {
-      notify('error', 'Mark at least one active item as a farm item in Items & settings.')
+    if (action === 'claim' && Date.now() - lastCompletedClaimAt.current < 2_000) {
+      notify('info', 'A farm claim just finished. No second cycle was added.')
       return
     }
     actionLock.current = action
     setBusyAction(action)
     try {
-      const ids = farmItems.map((item) => item.id)
-      const { data: before, error: beforeError } = await supabase.from('rar_items').select('id,stock').in('id', ids)
-      if (beforeError) throw beforeError
+      const [itemResponse, configResponse] = await Promise.all([
+        supabase.from('rar_items').select('id,name,stock').eq('kind', 'item').eq('is_farm_item', true).eq('active', true).order('id'),
+        supabase.from('rar_farm_config').select('*').single(),
+      ])
+      if (itemResponse.error) throw itemResponse.error
+      if (configResponse.error) throw configResponse.error
+      const before = itemResponse.data || []
+      if (before.length === 0) throw new Error('Mark at least one active item as a farm item in Items & settings.')
+
+      const ids = before.map((item) => item.id)
+      const latestConfig = configResponse.data
       const now = new Date().toISOString()
       const { data: result, error } = action === 'sync'
         ? await supabase.rpc('rar_sync_farm_due', { p_now: now })
-        : await supabase.rpc('rar_claim_farm_cycles', { p_cycles: 1, p_event_at: now })
+        : await supabase.rpc('rar_claim_farm_cycles', { p_cycles: 1, p_event_at: now, p_request_id: claimRequestId.current })
       if (error) throw error
 
-      const cycles = action === 'sync' ? toNumber(result) : 1
-      const expectedEach = toNumber(config?.farming_accounts, 3) * unitsPerItem * cycles
+      const returned = toNumber(result)
+      const duplicate = action === 'claim' && returned < 0
+      const cycles = action === 'sync' ? returned : 1
+      const expectedEach = action === 'sync'
+        ? toNumber(latestConfig.farming_accounts, 3) * toNumber(latestConfig.units_per_item_per_account, 1) * cycles
+        : Math.abs(returned) / before.length
       const { data: after, error: afterError } = await supabase.from('rar_items').select('id,stock').in('id', ids)
       if (afterError) throw afterError
-      for (const item of farmItems) {
-        const previous = before.find((row) => row.id === item.id)
-        const current = after.find((row) => row.id === item.id)
-        if (!previous || !current || toNumber(current.stock) !== toNumber(previous.stock) + expectedEach) throw new Error(`${item.name} did not show the expected farm stock increase. Refresh before retrying.`)
+      const deltas = []
+      const afterById = new Map(after.map((item) => [item.id, item]))
+      for (const item of before) {
+        const current = afterById.get(item.id)
+        if (!current) throw new Error(`${item.name} could not be verified after the farm action.`)
+        deltas.push(toNumber(current.stock) - toNumber(item.stock))
       }
+      const appliedBalancesMatch = deltas.every((delta) => numbersEqual(delta, expectedEach))
+      const unchangedBalancesMatch = deltas.every((delta) => numbersEqual(delta, 0))
+      if ((!duplicate && !appliedBalancesMatch) || (duplicate && !appliedBalancesMatch && !unchangedBalancesMatch)) throw new Error('The farm action saved but its stock result could not be verified. Refresh before retrying.')
 
       await refresh()
-      notify('success', action === 'sync' ? (cycles > 0 ? `${formatQuantity(cycles, 0)} completed ${cycles === 1 ? 'cycle' : 'cycles'} synced.` : 'Farm is already up to date; no stock was added.') : `One cycle claimed. Each farm item gained ${formatQuantity(expectedEach)} units.`)
+      if (action === 'claim') {
+        lastCompletedClaimAt.current = Date.now()
+        claimRequestId.current = rotateRequestId('farm-claim')
+      }
+      notify('success', duplicate
+        ? 'This farm claim was already recorded. No farm stock was added twice.'
+        : action === 'sync' ? (cycles > 0 ? `${formatQuantity(cycles, 0)} completed ${cycles === 1 ? 'cycle' : 'cycles'} synced.` : 'Farm is already up to date; no stock was added.') : `One cycle claimed. Each farm item gained ${formatQuantity(expectedEach)} units.`)
     } catch (error) {
       notify('error', readableError(error, 'The farm action could not be completed.'))
     } finally {

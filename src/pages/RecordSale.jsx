@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Calculator, Coins, Minus, Plus, ReceiptText, ShoppingBag } from 'lucide-react'
 import { Button, Card, Field, PageHeader, SectionHeading, StockPill } from '../components/ui.jsx'
 import { CLASSIFICATIONS, CURRENCIES } from '../lib/constants.js'
-import { formatMoney, formatQuantity, localDateTimeValue, toNumber } from '../lib/format.js'
+import { formatMoney, formatQuantity, getRequestId, localDateTimeValue, numbersEqual, rotateRequestId, toNumber } from '../lib/format.js'
 import { readableError, supabase } from '../lib/supabase.js'
 
 const newLine = () => ({ id: crypto.randomUUID(), item_id: '', quantity: '1' })
@@ -20,6 +20,7 @@ export default function RecordSale({ data, refresh, notify, onNavigate }) {
   const [lines, setLines] = useState([newLine()])
   const [submitting, setSubmitting] = useState(false)
   const submitLock = useRef(false)
+  const requestId = useRef(getRequestId('sale'))
   const activeItems = useMemo(() => data.items.filter((item) => item.active).sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name)), [data.items])
   const activePlatforms = data.platforms.filter((platform) => platform.active)
   const selectedPlatform = data.platforms.find((platform) => platform.name === form.platform)
@@ -64,6 +65,7 @@ export default function RecordSale({ data, refresh, notify, onNavigate }) {
     submitLock.current = true
     setSubmitting(true)
     try {
+      const intendedSoldAt = new Date(form.sold_at).toISOString()
       const ids = [...uniqueIds]
       const { data: latestItems, error: stockError } = await supabase.from('rar_items').select('id,name,stock,active').in('id', ids)
       if (stockError) throw stockError
@@ -76,7 +78,7 @@ export default function RecordSale({ data, refresh, notify, onNavigate }) {
 
       const saleLines = lines.map((line) => ({ item_id: line.item_id, quantity: Number(line.quantity), unit_gross_price: null }))
       const { data: saleId, error } = await supabase.rpc('rar_record_sale', {
-        p_sold_at: new Date(form.sold_at).toISOString(),
+        p_sold_at: intendedSoldAt,
         p_platform: form.platform,
         p_net_credit: Number(form.net_credit),
         p_platform_fee: Number(form.platform_fee),
@@ -85,20 +87,39 @@ export default function RecordSale({ data, refresh, notify, onNavigate }) {
         p_notes: form.notes.trim() || null,
         p_items: saleLines,
         p_inventory_applied: true,
+        p_request_id: requestId.current,
       })
       if (error) throw error
       if (!saleId) throw new Error('The sale did not return a confirmation ID.')
 
-      const { data: savedLines, error: verifyError } = await supabase.from('rar_sale_items').select('item_id,quantity').eq('sale_id', saleId)
-      if (verifyError || savedLines?.length !== saleLines.length) throw new Error('The sale saved, but its bundle could not be fully verified. Review Sales history before retrying.')
+      const [lineResponse, saleResponse] = await Promise.all([
+        supabase.from('rar_sale_items').select('item_id,quantity').eq('sale_id', saleId),
+        supabase.from('rar_sales').select('sold_at,platform,net_credit,platform_fee,currency,classification,notes').eq('id', saleId).single(),
+      ])
+      const { data: savedLines, error: verifyError } = lineResponse
+      const { data: savedSale, error: saleVerifyError } = saleResponse
+      const savedLineByItem = new Map((savedLines || []).map((line) => [line.item_id, line]))
+      const bundleMatches = savedLines?.length === saleLines.length && saleLines.every((expected) => (
+        numbersEqual(savedLineByItem.get(expected.item_id)?.quantity, expected.quantity)
+      ))
+      const saleMatches = savedSale
+        && savedSale.platform === form.platform
+        && savedSale.currency === form.currency
+        && savedSale.classification === form.classification
+        && numbersEqual(savedSale.net_credit, form.net_credit)
+        && numbersEqual(savedSale.platform_fee, form.platform_fee)
+        && new Date(savedSale.sold_at).getTime() === new Date(intendedSoldAt).getTime()
+        && (savedSale.notes || '') === form.notes.trim()
+      if (verifyError || saleVerifyError || !bundleMatches || !saleMatches) throw new Error('A sale with this request was saved, but its full details did not match. Review Sales history before retrying.')
 
       await refresh()
       notify('success', `Sale recorded on ${form.platform}. Inventory was deducted once for ${saleLines.length} ${saleLines.length === 1 ? 'item' : 'bundle items'}.`)
+      requestId.current = rotateRequestId('sale')
       setForm((current) => ({ ...current, sold_at: localDateTimeValue(), net_credit: '', platform_fee: '', notes: '' }))
       setLines([newLine()])
       onNavigate('history')
     } catch (error) {
-      notify('error', readableError(error, 'The sale could not be recorded. No retry was attempted.'))
+      notify('error', readableError(error, 'The sale could not be confirmed. Check Sales history before trying again.'))
     } finally {
       submitLock.current = false
       setSubmitting(false)

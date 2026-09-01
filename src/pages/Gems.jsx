@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Coins, History, Sparkles } from 'lucide-react'
 import { Button, Card, EmptyState, Field, PageHeader, SectionHeading, StockPill } from '../components/ui.jsx'
-import { formatDateTime, formatQuantity, gemRange, localDateTimeValue, toNumber } from '../lib/format.js'
+import { formatDateTime, formatQuantity, gemRange, getRequestId, localDateTimeValue, numbersEqual, rotateRequestId, toNumber } from '../lib/format.js'
 import { readableError, supabase } from '../lib/supabase.js'
 
 export default function Gems({ data, refresh, notify }) {
@@ -9,6 +9,7 @@ export default function Gems({ data, refresh, notify }) {
   const [form, setForm] = useState({ item_id: '', quantity: '1', gems: '', event_at: localDateTimeValue(), notes: '' })
   const [submitting, setSubmitting] = useState(false)
   const submitLock = useRef(false)
+  const requestId = useRef(getRequestId('gems'))
   const gemItem = data.items.find((item) => item.kind === 'currency' && item.name.toLowerCase() === 'gems')
   const physicalItems = data.items.filter((item) => item.kind === 'item' && item.active).sort((a, b) => a.name.localeCompare(b.name))
   const selectedItem = physicalItems.find((item) => item.id === form.item_id)
@@ -55,11 +56,13 @@ export default function Gems({ data, refresh, notify }) {
 
       const rpcName = mode === 'convert' ? 'rar_convert_item_to_gems' : 'rar_buy_item_with_gems'
       const params = mode === 'convert'
-        ? { p_item_id: form.item_id, p_quantity: quantity, p_gems_received: gems, p_event_at: new Date(form.event_at).toISOString(), p_notes: form.notes.trim() || null }
-        : { p_item_id: form.item_id, p_quantity: quantity, p_gems_spent: gems, p_event_at: new Date(form.event_at).toISOString(), p_notes: form.notes.trim() || null }
+        ? { p_item_id: form.item_id, p_quantity: quantity, p_gems_received: gems, p_event_at: new Date(form.event_at).toISOString(), p_notes: form.notes.trim() || null, p_request_id: requestId.current }
+        : { p_item_id: form.item_id, p_quantity: quantity, p_gems_spent: gems, p_event_at: new Date(form.event_at).toISOString(), p_notes: form.notes.trim() || null, p_request_id: requestId.current }
       const { data: result, error } = await supabase.rpc(rpcName, params)
       if (error) throw error
-      if (toNumber(result) !== (mode === 'convert' ? gems : quantity)) throw new Error('The Gem transaction returned an unexpected result.')
+      const resultAmount = toNumber(result)
+      const duplicate = resultAmount < 0
+      if (!numbersEqual(Math.abs(resultAmount), mode === 'convert' ? gems : quantity)) throw new Error('The Gem transaction returned an unexpected result.')
 
       const { data: verified, error: verifyError } = await supabase.from('rar_items').select('id,stock').in('id', [form.item_id, gemItem.id])
       if (verifyError) throw verifyError
@@ -67,13 +70,18 @@ export default function Gems({ data, refresh, notify }) {
       const finalGems = verified.find((item) => item.id === gemItem.id)
       const expectedItem = toNumber(latestItem.stock) + (mode === 'convert' ? -quantity : quantity)
       const expectedGems = toNumber(latestGems.stock) + (mode === 'convert' ? gems : -gems)
-      if (toNumber(finalItem?.stock) !== expectedItem || toNumber(finalGems?.stock) !== expectedGems) throw new Error('The Gem transaction saved but its inventory result could not be verified. Refresh before retrying.')
+      const appliedBalancesMatch = numbersEqual(finalItem?.stock, expectedItem) && numbersEqual(finalGems?.stock, expectedGems)
+      const unchangedBalancesMatch = numbersEqual(finalItem?.stock, latestItem.stock) && numbersEqual(finalGems?.stock, latestGems.stock)
+      if ((!duplicate && !appliedBalancesMatch) || (duplicate && !appliedBalancesMatch && !unchangedBalancesMatch)) throw new Error('The Gem transaction saved but its inventory result could not be verified. Refresh before retrying.')
 
       await refresh()
-      notify('success', mode === 'convert' ? `${formatQuantity(quantity)} ${latestItem.name} converted into ${formatQuantity(gems)} Gems.` : `${formatQuantity(quantity)} ${latestItem.name} purchased for ${formatQuantity(gems)} Gems.`)
+      requestId.current = rotateRequestId('gems')
+      notify('success', duplicate
+        ? 'This Gem transaction was already recorded. No item or Gem balance moved twice.'
+        : mode === 'convert' ? `${formatQuantity(quantity)} ${latestItem.name} converted into ${formatQuantity(gems)} Gems.` : `${formatQuantity(quantity)} ${latestItem.name} purchased for ${formatQuantity(gems)} Gems.`)
       setForm({ item_id: '', quantity: '1', gems: '', event_at: localDateTimeValue(), notes: '' })
     } catch (error) {
-      notify('error', readableError(error, 'The Gem transaction could not be completed.'))
+      notify('error', readableError(error, 'The Gem transaction could not be confirmed. Refresh balances before trying again.'))
     } finally {
       submitLock.current = false
       setSubmitting(false)

@@ -15,6 +15,9 @@ export function readableError(error, fallback = 'Something went wrong. Please tr
   if (!error) return fallback
   const message = error.message || String(error)
 
+  if (error.code === '23505') return 'An item or platform with that name already exists.'
+  if (error.code === '23514') return 'The database rejected a value that would break an inventory or money safety rule.'
+
   const friendlyMessages = {
     'Invalid login credentials': 'The email or password is incorrect.',
     'Email not confirmed': 'Please confirm your email before signing in.',

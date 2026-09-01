@@ -1,8 +1,31 @@
 import { CURRENCIES } from './constants.js'
 
+const requestIdCache = new Map()
+
 export function toNumber(value, fallback = 0) {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
+}
+
+export function numbersEqual(left, right, epsilon = 0.000001) {
+  return Math.abs(toNumber(left) - toNumber(right)) <= epsilon
+}
+
+export function getRequestId(key) {
+  if (requestIdCache.has(key)) return requestIdCache.get(key)
+  const storageKey = `rar-request-${key}`
+  const existing = window.sessionStorage.getItem(storageKey)
+  const requestId = existing || crypto.randomUUID()
+  window.sessionStorage.setItem(storageKey, requestId)
+  requestIdCache.set(key, requestId)
+  return requestId
+}
+
+export function rotateRequestId(key) {
+  const requestId = crypto.randomUUID()
+  window.sessionStorage.setItem(`rar-request-${key}`, requestId)
+  requestIdCache.set(key, requestId)
+  return requestId
 }
 
 export function formatQuantity(value, maximumFractionDigits = 2) {

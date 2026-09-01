@@ -41,28 +41,15 @@ export default function App() {
     toastTimer.current = window.setTimeout(() => setToast(null), type === 'error' ? 8_000 : 4_500)
   }, [])
 
-  const ensureDefaults = useCallback(async (userId, existingItems) => {
+  const ensureDefaults = useCallback(async (userId) => {
     if (defaultsInFlight.current.has(userId)) return defaultsInFlight.current.get(userId)
 
     const setup = (async () => {
-      if (existingItems.length === 0) {
-        const { error: itemError } = await supabase.from('rar_items').insert(INITIAL_ITEMS.map((item) => ({ ...item, user_id: userId })))
-        if (itemError) throw new Error(`Initial item setup failed: ${readableError(itemError)}`)
-      }
-
-      const { data: platforms, error: platformLoadError } = await supabase.from('rar_platforms').select('id').limit(1)
-      if (platformLoadError) throw platformLoadError
-      if (!platforms.length) {
-        const { error: platformError } = await supabase.from('rar_platforms').insert(DEFAULT_PLATFORMS.map((platform) => ({ ...platform, user_id: userId, active: true })))
-        if (platformError) throw new Error(`Platform setup failed: ${readableError(platformError)}`)
-      }
-
-      const { data: farmConfig, error: farmLoadError } = await supabase.from('rar_farm_config').select('user_id').maybeSingle()
-      if (farmLoadError) throw farmLoadError
-      if (!farmConfig) {
-        const { error: farmError } = await supabase.from('rar_farm_config').insert({ user_id: userId, farming_accounts: 3, cycle_days: 2.5, units_per_item_per_account: 1 })
-        if (farmError) throw new Error(`Farm setup failed: ${readableError(farmError)}`)
-      }
+      const { error } = await supabase.rpc('rar_ensure_defaults', {
+        p_items: INITIAL_ITEMS,
+        p_platforms: DEFAULT_PLATFORMS,
+      })
+      if (error) throw new Error(`Private tracker setup failed: ${readableError(error)}`)
     })()
 
     defaultsInFlight.current.set(userId, setup)
@@ -79,9 +66,7 @@ export default function App() {
     if (!quiet) setDataLoading(true)
     setAppError(null)
     try {
-      const { data: firstItems, error: firstItemsError } = await supabase.from('rar_items').select('*').order('name')
-      if (firstItemsError) throw firstItemsError
-      await ensureDefaults(userId, firstItems || [])
+      await ensureDefaults(userId)
 
       const requests = await Promise.all([
         supabase.from('rar_items').select('*').order('name'),

@@ -2,13 +2,14 @@ import { useMemo, useRef, useState } from 'react'
 import { PackageCheck, PackagePlus, Receipt, Truck } from 'lucide-react'
 import { Button, Card, EmptyState, Field, PageHeader, SectionHeading, StockPill } from '../components/ui.jsx'
 import { CURRENCIES } from '../lib/constants.js'
-import { formatDateTime, formatMoney, formatQuantity, localDateTimeValue, toNumber } from '../lib/format.js'
+import { formatDateTime, formatMoney, formatQuantity, getRequestId, localDateTimeValue, numbersEqual, rotateRequestId, toNumber } from '../lib/format.js'
 import { readableError, supabase } from '../lib/supabase.js'
 
 export default function Purchases({ data, refresh, notify }) {
   const [form, setForm] = useState({ item_id: '', quantity: '1', cash_amount: '', cash_currency: 'MYR', event_at: localDateTimeValue(), notes: '' })
   const [submitting, setSubmitting] = useState(false)
   const submitLock = useRef(false)
+  const requestId = useRef(getRequestId('purchase'))
   const items = data.items.filter((item) => item.kind === 'item' && item.active).sort((a, b) => a.name.localeCompare(b.name))
   const selectedItem = items.find((item) => item.id === form.item_id)
   const history = useMemo(() => data.inventoryEvents.filter((event) => event.event_type === 'supplier_purchase').map((event) => ({ ...event, item: data.items.find((item) => item.id === event.item_id) })).filter((event) => event.item).slice(0, 30), [data.inventoryEvents, data.items])
@@ -36,18 +37,24 @@ export default function Purchases({ data, refresh, notify }) {
         p_cash_currency: form.cash_currency,
         p_event_at: new Date(form.event_at).toISOString(),
         p_notes: form.notes.trim() || null,
+        p_request_id: requestId.current,
       })
       if (error) throw error
-      if (toNumber(result) !== quantity) throw new Error('The purchase returned an unexpected stock quantity.')
+      const resultQuantity = toNumber(result)
+      const duplicate = resultQuantity < 0
+      if (!numbersEqual(Math.abs(resultQuantity), quantity)) throw new Error('The purchase returned an unexpected stock quantity.')
 
       const { data: after, error: verifyError } = await supabase.from('rar_items').select('stock').eq('id', form.item_id).single()
-      if (verifyError || toNumber(after?.stock) !== toNumber(before.stock) + quantity) throw new Error('The purchase saved but the stock increase could not be verified. Refresh before retrying.')
+      const appliedBalanceMatches = numbersEqual(after?.stock, toNumber(before.stock) + quantity)
+      const unchangedBalanceMatches = numbersEqual(after?.stock, before.stock)
+      if (verifyError || (!duplicate && !appliedBalanceMatches) || (duplicate && !appliedBalanceMatches && !unchangedBalanceMatches)) throw new Error('The purchase saved but the stock increase could not be verified. Refresh before retrying.')
 
       await refresh()
-      notify('success', `${formatQuantity(quantity)} ${before.name} added to stock.`)
+      requestId.current = rotateRequestId('purchase')
+      notify('success', duplicate ? 'This supplier purchase was already recorded. Stock was not added twice.' : `${formatQuantity(quantity)} ${before.name} added to stock.`)
       setForm({ item_id: '', quantity: '1', cash_amount: '', cash_currency: form.cash_currency, event_at: localDateTimeValue(), notes: '' })
     } catch (error) {
-      notify('error', readableError(error, 'The supplier purchase could not be recorded.'))
+      notify('error', readableError(error, 'The supplier purchase could not be confirmed. Refresh stock before trying again.'))
     } finally {
       submitLock.current = false
       setSubmitting(false)
