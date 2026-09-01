@@ -1,0 +1,53 @@
+export const CURRENCIES = ['USD', 'MYR', 'PHP', 'IDR']
+export const CLASSIFICATIONS = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'break_even', label: 'Break even' },
+  { value: 'unknown_price', label: 'Unknown price' },
+  { value: 'other', label: 'Other' },
+]
+
+export const DEFAULT_PLATFORMS = [
+  { name: 'Eldorado', default_fee_pct: 15 },
+  { name: 'ZeusX', default_fee_pct: 10 },
+  { name: 'Gameflip', default_fee_pct: null },
+  { name: 'PlayerAuctions', default_fee_pct: null },
+  { name: 'G2G', default_fee_pct: null },
+  { name: 'Itemku', default_fee_pct: null },
+  { name: 'Direct', default_fee_pct: null },
+]
+
+export const INITIAL_ITEMS = [
+  { name: 'Dinosaur Fossil', gem_value_min: 3300, gem_value_max: 3500, is_farm_item: true },
+  { name: 'Food Pantry', gem_value_min: 800, gem_value_max: 900, is_farm_item: true },
+  { name: 'Greenhouse', gem_value_min: 1500, gem_value_max: 1500, is_farm_item: true },
+  { name: 'Host Station', gem_value_min: 1500, gem_value_max: 1700, is_farm_item: true },
+  { name: 'Gems', kind: 'currency', gem_value_min: null, gem_value_max: null },
+  { name: 'Jukebox', gem_value_min: 575, gem_value_max: 575 },
+  { name: 'Piano', gem_value_min: 6000, gem_value_max: 6000 },
+  { name: 'Mini Ferris Wheel', gem_value_min: 1200, gem_value_max: 1200 },
+  { name: 'High Tech Stove', gem_value_min: 4500, gem_value_max: 4500 },
+  { name: 'High Tech Dishwasher', gem_value_min: 3000, gem_value_max: 3000 },
+  { name: 'High Tech Fridge', gem_value_min: 2250, gem_value_max: 2250 },
+  { name: 'Golden Stove', gem_value_min: 3000, gem_value_max: 3000 },
+  { name: 'Golden Dishwasher', gem_value_min: 2000, gem_value_max: 2000 },
+  { name: 'Golden Fridge', gem_value_min: 1500, gem_value_max: 1500 },
+  { name: 'Supercar', gem_value_min: 3000, gem_value_max: 3000 },
+  { name: 'Premium Order Kiosk', gem_value_min: 10, gem_value_max: 10 },
+  { name: 'Lucky Cat Tip Jar', gem_value_min: 1000, gem_value_max: 1000 },
+  { name: 'Sunken Tip Jar', gem_value_min: 1400, gem_value_max: 1400 },
+  { name: 'Carnival Game Tip Jar', gem_value_min: 1000, gem_value_max: 1000 },
+  { name: 'Deluxe Tip Jar', gem_value_min: 575, gem_value_max: 575 },
+  { name: 'Small Tip Jar', gem_value_min: 75, gem_value_max: 75 },
+  { name: 'Large Sprinkler', gem_value_min: 100, gem_value_max: 100 },
+  { name: 'Giant Beehive', gem_value_min: 250, gem_value_max: 250 },
+  { name: 'Windmill', gem_value_min: 35, gem_value_max: 35 },
+  { name: 'Sunken Fishing Rod', gem_value_min: 400, gem_value_max: 400 },
+  { name: 'Golden Fishing Rod', gem_value_min: 1800, gem_value_max: 1800 },
+  { name: 'Prep Kitchen', gem_value_min: null, gem_value_max: null },
+].map((item) => ({
+  kind: 'item',
+  stock: 0,
+  is_farm_item: false,
+  active: true,
+  ...item,
+}))
