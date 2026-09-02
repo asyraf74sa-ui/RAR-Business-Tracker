@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { parseSaleMessage, SaleParseError } from '../src/parser.js'
+import { isSaleMessage, parseSaleMessage, SaleParseError } from '../src/parser.js'
+
+test('classifies only sale headers as sales messages', () => {
+  assert.equal(isSaleMessage('RAR - 1 PIANO\n10 US\n1 US TAX\nZEUSX'), true)
+  assert.equal(isSaleMessage('RAR PURCHASE - 1 PIANO\n10 USD'), false)
+  assert.equal(isSaleMessage('RAR FARM - 1 CYCLE'), false)
+  assert.equal(isSaleMessage('RAR TRADE\nGIVE - 1 PIANO\nRECEIVE - 1 GEMS'), false)
+})
 
 test('parses a Gems sale', () => {
   const sale = parseSaleMessage(`RAR - 8,000 GEMS

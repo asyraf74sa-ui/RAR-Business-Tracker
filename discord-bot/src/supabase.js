@@ -24,8 +24,8 @@ export async function authenticateSupabase(supabase, { email, password }) {
 
 export async function loadCatalog(supabase) {
   const [itemResult, platformResult] = await Promise.all([
-    supabase.from('rar_items').select('id,name,stock,kind,active').order('name'),
-    supabase.from('rar_platforms').select('id,name,active').order('name'),
+    supabase.from('rar_items').select('id,name,stock,kind,active').eq('active', true).order('name'),
+    supabase.from('rar_platforms').select('id,name,active').eq('active', true).order('name'),
   ])
 
   if (itemResult.error) throw new Error(`Could not load RAR items: ${itemResult.error.message}`)
@@ -35,6 +35,17 @@ export async function loadCatalog(supabase) {
     items: itemResult.data || [],
     platforms: platformResult.data || [],
   }
+}
+
+export async function loadActiveItems(supabase) {
+  const { data, error } = await supabase
+    .from('rar_items')
+    .select('id,name,stock,kind,active')
+    .eq('active', true)
+    .order('name')
+
+  if (error) throw new Error(`Could not refresh active RAR items: ${error.message}`)
+  return data || []
 }
 
 export async function findRecordedSale(supabase, requestId) {
@@ -48,14 +59,55 @@ export async function findRecordedSale(supabase, requestId) {
   return data?.id || null
 }
 
-export async function recordSale(supabase, payload, { attempts = 3 } = {}) {
+export async function findRecordedInventoryOperation(supabase, requestIds) {
+  const ids = [...new Set(requestIds)].filter(Boolean)
+  if (ids.length === 0) return null
+
+  const { data, error } = await supabase
+    .from('rar_inventory_events')
+    .select('request_id,event_type')
+    .in('request_id', ids)
+    .limit(1)
+
+  if (error) throw new Error(`Could not check for an existing inventory operation: ${error.message}`)
+  return data?.[0] || null
+}
+
+export async function loadInventoryEvents(supabase, requestId) {
+  const { data, error } = await supabase
+    .from('rar_inventory_events')
+    .select('item_id,event_type,quantity_delta,balance_after,item:rar_items(name)')
+    .eq('request_id', requestId)
+    .order('item_id')
+
+  if (error) throw new Error(`Could not load recorded inventory results: ${error.message}`)
+  return data || []
+}
+
+export function recordSale(supabase, payload, options) {
+  return callRpcWithRetry(supabase, 'rar_record_sale', payload, options)
+}
+
+export function recordPurchaseBundle(supabase, payload, options) {
+  return callRpcWithRetry(supabase, 'rar_record_purchase_bundle', payload, options)
+}
+
+export function claimFarmCycles(supabase, payload, options) {
+  return callRpcWithRetry(supabase, 'rar_claim_farm_cycles', payload, options)
+}
+
+export function recordTrade(supabase, payload, options) {
+  return callRpcWithRetry(supabase, 'rar_record_trade', payload, options)
+}
+
+export async function callRpcWithRetry(supabase, functionName, payload, { attempts = 3 } = {}) {
   let lastError
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      const { data, error } = await supabase.rpc('rar_record_sale', payload)
+      const { data, error } = await supabase.rpc(functionName, payload)
       if (!error) {
-        if (!data) throw new Error('The sale RPC did not return a sale ID.')
+        if (data === null || data === undefined) throw new Error(`${functionName} did not return a result.`)
         return data
       }
 

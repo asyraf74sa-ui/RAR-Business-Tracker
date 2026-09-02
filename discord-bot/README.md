@@ -1,56 +1,55 @@
-# RAR Discord sales bot
+# RAR Discord bot
 
-This folder is a separate, always-on Windows bot for the existing RAR Business Tracker. It does not run on Vercel and does not change the frontend or database schema.
+This folder contains the always-on Windows bot for the existing RAR Business Tracker. It keeps sales and inventory-acquisition messages in separate Discord channels and uses authenticated Supabase RPCs for atomic database changes.
 
-The bot watches one configured Discord channel, ignores bots and every other channel, resolves item names against your authenticated Supabase `rar_items`, checks stock, and calls the existing `rar_record_sale` RPC. The RPC receives a deterministic request UUID derived from the Discord guild, channel, and message IDs, so retrying the same Discord message cannot create a second sale.
+- The **sales channel** accepts only `RAR - ...` sales. Existing sale behavior and duplicate IDs are preserved.
+- The **acquisition channel** accepts purchases, farm claims, and in-game trades. Sale messages in this channel are ignored.
+- `/help` is registered as a server command and responds privately. Its **Valid item names** topic refreshes the active catalog from Supabase each time.
+
+Every accepted Discord message gets a deterministic request UUID. Retrying a message cannot create a duplicate operation. Editing a recorded message does not rewrite history; the bot tells you to correct it through the RAR tracker.
 
 ## 1. Install Node.js
 
-The bot requires **Node.js 22 or newer**. Supabase no longer supports Node 20.
-
-1. Open [nodejs.org](https://nodejs.org/).
-2. Download and run the Windows installer for a current LTS release (Node 22 or newer).
-3. Keep the installer option that adds Node.js and npm to `PATH`.
-4. Open a new Command Prompt and verify:
+Install **Node.js 22 or newer** from [nodejs.org](https://nodejs.org/), then open a new Command Prompt and verify:
 
 ```bat
 node --version
 npm --version
 ```
 
-## 2. Prepare the Discord bot
+## 2. Prepare Discord
 
 In the [Discord Developer Portal](https://discord.com/developers/applications):
 
-1. Create or open your application and add a bot.
+1. Create or open the application and add a bot.
 2. Under **Bot > Privileged Gateway Intents**, enable **Message Content Intent**.
-3. Copy/reset the bot token. Treat it like a password.
-4. Invite the bot to your server with permission to view the sales channel, read message history, and send messages.
+3. Copy or reset the bot token. Treat it like a password.
+4. Invite the bot with the `bot` and `applications.commands` scopes. Give it permission to view both configured channels, read message history, send messages, and use application commands.
 5. In Discord, enable **User Settings > Advanced > Developer Mode**.
-6. Right-click the RAR sales channel and select **Copy Channel ID**.
+6. Right-click the server and choose **Copy Server ID**.
+7. Right-click the sales channel and the separate acquisition channel and choose **Copy Channel ID** for each.
 
 ## 3. Install dependencies
-
-Open Command Prompt, change to this folder, and install the exact versions recorded in `package-lock.json`:
 
 ```bat
 cd C:\path\to\RAR-Business-Tracker\discord-bot
 npm install
 ```
 
-## 4. Create `.env`
+## 4. Configure `.env`
 
-Copy the example file:
+Copy the example, then fill every blank value:
 
 ```bat
 copy .env.example .env
+notepad .env
 ```
-
-Open `.env` in Notepad and fill in every blank value:
 
 ```dotenv
 DISCORD_BOT_TOKEN=your_discord_bot_token
+DISCORD_GUILD_ID=your_server_id
 DISCORD_SALES_CHANNEL_ID=your_sales_channel_id
+DISCORD_ACQUISITION_CHANNEL_ID=your_separate_acquisition_channel_id
 
 SUPABASE_URL=https://aiufjjedsgatmnhocxyz.supabase.co
 SUPABASE_ANON_KEY=sb_publishable_izEtafPfqUazScWRmBfocw_acP5teS7
@@ -58,60 +57,82 @@ SUPABASE_EMAIL=your_normal_supabase_login_email
 SUPABASE_PASSWORD=your_normal_supabase_login_password
 ```
 
-Use the same normal Supabase email/password account that owns the RAR tracker data. Do not use or add a service-role key.
+The two channel IDs must be different. Use the normal Supabase account that owns the RAR tracker data; never add a service-role key. `.env` is ignored by Git, so tokens, passwords, and sessions remain local.
 
-`.env` is ignored by Git. Never commit or send the Discord token, Supabase password, access token, refresh token, or session data. The included Supabase publishable key is intended for public clients; your account credentials are not.
+## 5. Apply the acquisition migration
 
-## 5. Test and start
+The repository migration `supabase/migrations/20260902054745_discord_acquisition_operations.sql` adds the atomic purchase-bundle and trade RPCs. Apply repository migrations to the same Supabase project before starting this version of the bot. The migration preserves existing rows, sale behavior, and farm configuration.
 
-Run the parser and duplicate-ID tests:
+## 6. Test and start
 
 ```bat
 npm test
-```
-
-Start the bot by double-clicking `start-bot.bat`, or run:
-
-```bat
+npm run check
 npm start
 ```
 
-Successful startup prints only a short authentication/catalog status and the Discord bot name/channel. It never prints credentials or session tokens.
+You can also double-click `start-bot.bat`. On startup, the bot registers or updates the server-scoped `/help` command without replacing unrelated commands. If you change `.env` or update the code, restart the bot.
 
-Example accepted message:
+## Message formats
+
+Post sales only in the sales channel:
 
 ```text
-RAR - 3,000 GEMS , 1 PIANO
+RAR - 3,000 GEMS, 1 PIANO
 12.42 US
 1.38 US TAX
 ZEUSX
 ```
 
-Supported platforms are Eldorado, ZeusX, Gameflip, PlayerAuctions, G2G, Itemku, and Direct. Currency markers currently supported are `USD`, `US`, and `$`, all recorded as USD. Item separators may be commas or `+`; item matching ignores case, supports basic singular/plural wording, and maps `Dino Fossil` to the catalog item `Dinosaur Fossil`.
+Post these only in the acquisition channel.
 
-Unknown or ambiguous items and insufficient stock are rejected without recording a sale. If a successfully recorded Discord message is edited, the bot warns you to edit the transaction in the RAR tracker instead.
+Purchase — the second line is the total bundle cost, counted once:
 
-## 6. Start automatically when Windows logs in
+```text
+RAR PURCHASE - 5 HOST STATION, 2 GREENHOUSE
+336 PHP
+```
+
+Accepted purchase currencies are `USD`, `US`, `$`, `MYR`, `RM`, `PHP`, and `IDR` (normalized to `USD`, `MYR`, `PHP`, or `IDR`).
+
+Farm — quantities come from the tracker’s current farming account and units-per-item settings:
+
+```text
+RAR FARM - 1 CYCLE
+```
+
+Trade — GIVE is deducted and RECEIVE is added in one database transaction, with no cash revenue or purchase:
+
+```text
+RAR TRADE
+GIVE - 1 PIANO
+RECEIVE - 6,000 GEMS
+```
+
+Names are matched case-insensitively, with basic singular/plural handling and the `Dino Fossil` alias for `Dinosaur Fossil`. Unknown or ambiguous items reject the whole operation. If any GIVE item has insufficient stock, nothing is changed and the reply shows the item, required quantity, and available quantity.
+
+Run `/help` anywhere in the configured server. Choose its **Valid item names** topic for the current canonical names accepted by the bot; long catalogs are split across multiple private embed messages within Discord limits.
+
+## Start automatically when Windows logs in
 
 1. Press `Win + R`, enter `taskschd.msc`, and press Enter.
-2. Select **Create Task** (not Basic Task).
-3. On **General**, name it `RAR Discord Sales Bot` and choose **Run only when user is logged on**.
+2. Select **Create Task** and name it `RAR Discord Bot`.
+3. On **General**, choose **Run only when user is logged on**.
 4. On **Triggers**, add **At log on** for your Windows account.
-5. On **Actions**, add **Start a program**:
+5. On **Actions**, choose **Start a program**:
    - **Program/script:** the full path to `discord-bot\start-bot.bat`
    - **Start in:** the full path to the `discord-bot` folder, without quotes
-6. On **Conditions**, optionally clear **Start the task only if the computer is on AC power** if this is a laptop.
-7. On **Settings**, enable **Restart the task if it fails** and clear any setting that stops it after a fixed running time.
-8. Save the task, right-click it, and choose **Run** once to test it.
+6. On **Settings**, enable **Restart the task if it fails** and remove any fixed stop time.
+7. Save it, right-click it, and choose **Run** once to test it.
 
-The PC must remain powered on, connected to the internet, and signed in for the bot to keep running. After changing `.env` or updating the code, stop the scheduled task and run it again.
+The PC must remain powered on, online, and signed in.
 
 ## Troubleshooting
 
-- **Missing environment variables:** check that the file is named exactly `.env`, not `.env.txt`.
-- **Supabase authentication failed:** verify the normal account email/password and confirm the account can sign in to the tracker.
-- **Discord login failed:** reset the bot token in the Developer Portal and update `.env`.
-- **Messages are ignored:** confirm the channel ID, Message Content Intent, bot permissions, and that the author is not another bot.
-- **Unknown platform/item:** use a supported platform and an active item name from the RAR tracker. The bot deliberately does not guess ambiguous names.
-- **Insufficient stock:** correct inventory in the tracker; the bot never manufactures stock.
-- **Network interruption:** discord.js reconnects automatically. RPC write retries are bounded and reuse the same deterministic request UUID.
+- **Missing environment variables:** confirm the file is named `.env`, not `.env.txt`, and includes the guild and both channel IDs.
+- **`/help` is missing:** confirm the bot was invited with `applications.commands`, the guild ID is correct, and the startup console says the command is ready.
+- **Messages are ignored:** confirm you used the correct format in the correct channel and enabled Message Content Intent.
+- **Unknown item:** run `/help` with the **Valid item names** topic and copy a canonical active name.
+- **Insufficient stock:** correct inventory in the tracker; a failed sale or trade does not partially update stock.
+- **Database function not found:** apply the acquisition migration to the configured Supabase project, then restart the bot.
+- **Network interruption:** discord.js reconnects automatically. RPC retries are bounded and reuse the same deterministic request UUID.

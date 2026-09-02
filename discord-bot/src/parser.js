@@ -18,7 +18,7 @@ export class SaleParseError extends Error {
 }
 
 export function isSaleMessage(content) {
-  return /^\s*RAR\b/i.test(String(content || ''))
+  return /^\s*RAR\s*(?:-|\u2013|\u2014|:)/i.test(String(content || ''))
 }
 
 export function parseSaleMessage(content) {

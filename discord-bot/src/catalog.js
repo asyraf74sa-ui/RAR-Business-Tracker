@@ -20,10 +20,19 @@ export class AmbiguousItemError extends Error {
 }
 
 export class InsufficientStockError extends Error {
-  constructor(itemName) {
+  constructor(itemName, required, available) {
     super(`Insufficient stock for ${itemName}`)
     this.name = 'InsufficientStockError'
     this.itemName = itemName
+    this.required = required
+    this.available = available
+  }
+}
+
+export class TradeValidationError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = 'TradeValidationError'
   }
 }
 
@@ -36,7 +45,29 @@ export class UnknownPlatformError extends Error {
 }
 
 export function resolveSaleItems(parsedItems, catalogItems) {
-  const activeItems = catalogItems.filter((item) => item.active !== false)
+  const resolved = resolveItems(parsedItems, catalogItems)
+  validateOutgoingStock(resolved)
+  return resolved
+}
+
+export function resolvePurchaseItems(parsedItems, catalogItems) {
+  return resolveItems(parsedItems, catalogItems, { allowedKinds: new Set(['item']) })
+}
+
+export function resolveTradeItems(giveItems, receiveItems, catalogItems) {
+  const give = resolveItems(giveItems, catalogItems)
+  const receive = resolveItems(receiveItems, catalogItems)
+  const receiveIds = new Set(receive.map(({ item }) => item.id))
+  const overlap = give.find(({ item }) => receiveIds.has(item.id))
+  if (overlap) throw new TradeValidationError(`${overlap.item.name} cannot appear in both GIVE and RECEIVE.`)
+  validateOutgoingStock(give)
+  return { give, receive }
+}
+
+export function resolveItems(parsedItems, catalogItems, { allowedKinds = null } = {}) {
+  const activeItems = catalogItems.filter(
+    (item) => item.active !== false && (!allowedKinds || allowedKinds.has(item.kind)),
+  )
   const aliasIndex = buildAliasIndex(activeItems)
   const resolvedById = new Map()
 
@@ -57,15 +88,16 @@ export function resolveSaleItems(parsedItems, catalogItems) {
     else resolvedById.set(item.id, { item, quantity: parsedItem.quantity })
   }
 
-  const resolved = [...resolvedById.values()]
+  return [...resolvedById.values()]
+}
+
+export function validateOutgoingStock(resolved) {
   for (const line of resolved) {
     const stock = Number(line.item.stock)
     if (!Number.isFinite(stock) || stock < line.quantity) {
-      throw new InsufficientStockError(line.item.name)
+      throw new InsufficientStockError(line.item.name, line.quantity, Number.isFinite(stock) ? stock : 0)
     }
   }
-
-  return resolved
 }
 
 export function resolvePlatform(platformName, platforms) {
