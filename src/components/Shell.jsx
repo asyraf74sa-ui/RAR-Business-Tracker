@@ -44,11 +44,12 @@ export default function Shell({ activePage, onNavigate, user, onSignOut, childre
   const navigate = (id) => {
     onNavigate(id)
     setMoreOpen(false)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell app-shell--${activePage}`}>
       <header className="app-header">
         <div className="app-header__inner">
           <div className="brand brand--product" aria-label="RAR Business Tracker, Run a Restaurant">
@@ -83,7 +84,9 @@ export default function Shell({ activePage, onNavigate, user, onSignOut, childre
         </button>
       </header>
 
-      <main className="page-content">{children}</main>
+      <main className="page-content">
+        <div className="page-transition" key={activePage}>{children}</div>
+      </main>
 
       <nav className="bottom-nav" aria-label="Mobile navigation">
         {primaryMobile.map(({ id, mobileLabel, icon: Icon }) => (
