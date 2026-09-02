@@ -21,6 +21,20 @@ export function buildGuildCommandDefinitions() {
         .setRequired(false)
         .setAutocomplete(true))
       .toJSON(),
+    new SlashCommandBuilder()
+      .setName('monthly')
+      .setDescription('View a private monthly RAR financial report')
+      .addStringOption((option) => option
+        .setName('month')
+        .setDescription('Malaysia-calendar month in YYYY-MM format')
+        .setRequired(false)
+        .setMinLength(7)
+        .setMaxLength(7))
+      .toJSON(),
+    new SlashCommandBuilder()
+      .setName('months')
+      .setDescription('View private profit history for every recorded month')
+      .toJSON(),
   ]
 }
 

@@ -27,6 +27,7 @@ import {
 } from './catalog.js'
 import { registerGuildCommands } from './command-registration.js'
 import { buildHelpPages } from './help.js'
+import { processMonthlyHistoryInteraction, processMonthlyInteraction } from './monthly-command.js'
 import { isSaleMessage, parseSaleMessage, SaleParseError } from './parser.js'
 import { discordRequestId } from './request-id.js'
 import { buildStockReconciliationResults, formatStockReconciliationLine } from './stock-results.js'
@@ -72,7 +73,7 @@ client.once(Events.ClientReady, (readyClient) => {
     `RAR Discord bot ready as ${readyClient.user.tag}. Watching sales ${config.DISCORD_SALES_CHANNEL_ID} and acquisitions ${config.DISCORD_ACQUISITION_CHANNEL_ID}.`,
   )
   registerGuildCommands(readyClient, { guildId: config.DISCORD_GUILD_ID }).then(({ guild }) => {
-    console.log(`Guild /help and /stock commands are ready in ${guild.name}.`)
+    console.log(`Guild /help, /stock, /monthly, and /months commands are ready in ${guild.name}.`)
   }).catch((error) => {
     console.error(`Could not register guild commands: ${safeErrorMessage(error)}`)
   })
@@ -103,6 +104,10 @@ client.on(Events.InteractionCreate, (interaction) => {
     })
   } else if (interaction.commandName === 'stock') {
     processStockInteraction(interaction, { supabase })
+  } else if (interaction.commandName === 'monthly') {
+    processMonthlyInteraction(interaction, { supabase })
+  } else if (interaction.commandName === 'months') {
+    processMonthlyHistoryInteraction(interaction, { supabase })
   }
 })
 

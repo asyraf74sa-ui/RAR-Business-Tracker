@@ -1,5 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 
+const FINANCIAL_PAGE_SIZE = 1000
+const FINANCIAL_CURRENCIES = ['USD', 'MYR', 'PHP', 'IDR']
+
 export function createBotSupabaseClient({ url, publishableKey }) {
   return createClient(url, publishableKey, {
     auth: {
@@ -84,6 +87,52 @@ export async function loadInventoryEvents(supabase, requestId) {
   return data || []
 }
 
+export async function loadMonthlyFinancialRecords(supabase, { startInclusive, endExclusive }) {
+  const [sales, inventoryEvents] = await Promise.all([
+    loadAllFinancialRows(() => supabase
+      .from('rar_sales')
+      .select('id,sold_at,net_credit,platform_fee,currency,inventory_applied,classification')
+      .in('currency', FINANCIAL_CURRENCIES)
+      .gte('sold_at', startInclusive)
+      .lt('sold_at', endExclusive)
+      .order('sold_at')
+      .order('id'), 'RAR monthly sales'),
+    loadAllFinancialRows(() => supabase
+      .from('rar_inventory_events')
+      .select('id,event_at,event_type,cash_amount,cash_currency,request_id')
+      .eq('event_type', 'supplier_purchase')
+      .not('cash_amount', 'is', null)
+      .in('cash_currency', FINANCIAL_CURRENCIES)
+      .gte('event_at', startInclusive)
+      .lt('event_at', endExclusive)
+      .order('event_at')
+      .order('id'), 'RAR monthly purchases'),
+  ])
+
+  return { sales, inventoryEvents }
+}
+
+export async function loadFinancialHistoryRecords(supabase) {
+  const [sales, inventoryEvents] = await Promise.all([
+    loadAllFinancialRows(() => supabase
+      .from('rar_sales')
+      .select('id,sold_at,net_credit,platform_fee,currency,inventory_applied,classification')
+      .in('currency', FINANCIAL_CURRENCIES)
+      .order('sold_at')
+      .order('id'), 'RAR sales history'),
+    loadAllFinancialRows(() => supabase
+      .from('rar_inventory_events')
+      .select('id,event_at,event_type,cash_amount,cash_currency,request_id')
+      .eq('event_type', 'supplier_purchase')
+      .not('cash_amount', 'is', null)
+      .in('cash_currency', FINANCIAL_CURRENCIES)
+      .order('event_at')
+      .order('id'), 'RAR purchase history'),
+  ])
+
+  return { sales, inventoryEvents }
+}
+
 export function recordSale(supabase, payload, options) {
   return callRpcWithRetry(supabase, 'rar_record_sale', payload, options)
 }
@@ -135,6 +184,19 @@ export async function callRpcWithRetry(supabase, functionName, payload, { attemp
 export function isTransientError(error) {
   const message = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`
   return /(fetch|network|timeout|timed out|econn|socket|502|503|504|520)/i.test(message)
+}
+
+async function loadAllFinancialRows(buildQuery, label) {
+  const rows = []
+
+  for (let offset = 0; ; offset += FINANCIAL_PAGE_SIZE) {
+    const { data, error } = await buildQuery().range(offset, offset + FINANCIAL_PAGE_SIZE - 1)
+    if (error) throw new Error(`Could not load ${label}: ${error.message}`)
+
+    const page = data || []
+    rows.push(...page)
+    if (page.length < FINANCIAL_PAGE_SIZE) return rows
+  }
 }
 
 function delay(milliseconds) {

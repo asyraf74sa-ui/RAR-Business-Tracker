@@ -6,16 +6,28 @@ test('/help exposes add, read-only stock overview, and stock reconciliation topi
   const values = HELP_TOPICS.map(({ value }) => value)
   assert.ok(values.includes('add'))
   assert.ok(values.includes('stockoverview'))
+  assert.ok(values.includes('monthly'))
   assert.ok(values.includes('stock'))
 })
 
 test('plain help gives a useful overview of every operation', () => {
   const [page] = buildHelpPages()
-  for (const operation of ['SALES', 'PURCHASE', 'FARM', 'TRADE', 'ADD STOCK', 'STOCK OVERVIEW', 'STOCKTAKE / RECONCILE']) {
+  for (const operation of ['SALES', 'PURCHASE', 'FARM', 'TRADE', 'ADD STOCK', 'STOCK OVERVIEW', 'MONTHLY FINANCIAL OVERVIEW', 'STOCKTAKE / RECONCILE']) {
     assert.match(page.description, new RegExp(operation))
   }
   assert.match(page.description, /`\/stock` \*\*reads\*\* inventory only/i)
   assert.match(page.description, /`RAR STOCK - \.\.\.` \*\*sets\/reconciles\*\*/i)
+})
+
+test('/help monthly explains the formula without deducting platform tax twice', () => {
+  const [page] = buildHelpPages('monthly')
+  assert.equal(page.title, 'RAR Bot Help — monthly')
+  assert.match(page.description, /\/monthly month:2026-09/)
+  assert.match(page.description, /`\/months`/)
+  assert.match(page.description, /Net Profit = Actual Wallet Credit − Item Purchase Spending/)
+  assert.match(page.description, /not subtracted again/i)
+  assert.match(page.description, /Net Profit: \$70\.00 — not \$55\.00/)
+  assert.match(page.description, /never converted or combined/i)
 })
 
 test('/help add explains that ADD increases rather than sets stock', () => {

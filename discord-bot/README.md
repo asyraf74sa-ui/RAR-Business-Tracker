@@ -4,7 +4,7 @@ This folder contains the always-on Windows bot for the existing RAR Business Tra
 
 - The **sales channel** accepts only `RAR - ...` sales. Existing sale behavior and duplicate IDs are preserved.
 - The **acquisition channel** accepts purchases, farm claims, in-game trades, manual additions, and exact stocktakes. Sale messages in this channel are ignored.
-- `/help` and `/stock` are registered as server commands and respond privately. Help's **Valid item names** topic and every stock view refresh the active catalog from Supabase.
+- `/help`, `/stock`, `/monthly`, and `/months` are registered as server commands and respond privately. Stock and financial reports refresh authenticated data from Supabase whenever they run.
 
 Every accepted Discord message gets a deterministic request UUID. Retrying a message cannot create a duplicate operation. Editing a recorded message does not rewrite history; the bot tells you to correct it through the RAR tracker.
 
@@ -71,9 +71,34 @@ npm run check
 npm start
 ```
 
-You can also double-click `start-bot.bat`. On startup, the bot idempotently registers or updates the server-scoped `/help` and `/stock` commands without replacing unrelated commands. If you change `.env` or update the code, restart the bot.
+You can also double-click `start-bot.bat`. On startup, the bot idempotently registers or updates the server-scoped `/help`, `/stock`, `/monthly`, and `/months` commands without replacing unrelated commands. If you change `.env` or update the code, restart the bot.
 
 ## Message formats
+
+### Read-only monthly financial reports
+
+Run `/monthly` for the current Malaysia-calendar month, or select a strict `YYYY-MM` month:
+
+```text
+/monthly
+/monthly month:2026-09
+```
+
+Run `/months` for every month containing at least one sale or cash supplier purchase, newest first:
+
+```text
+/months
+```
+
+All financial responses are private. Each report keeps USD, MYR, PHP, and IDR separate; currencies are never mixed, converted, or combined into a fake grand total.
+
+```text
+Net Profit = Actual Wallet Credit after tax - Item Purchase Spending
+```
+
+**Platform Tax is shown for reference but is not subtracted again.** `rar_sales.net_credit` is already the amount actually received in the marketplace wallet after platform fees. Item Purchase Spending includes only non-null cash costs on `supplier_purchase` events created by `RAR PURCHASE`; farm, trade, ADD, STOCK, gem, and other non-cash events are excluded. Multi-item purchase cash is stored once and counted once.
+
+Reports use `Asia/Kuala_Lumpur` calendar-month boundaries (`>=` month start and `<` next month), page through long histories without silent truncation, and perform authenticated Supabase `SELECT` operations only. No database migration or new environment variable is required.
 
 ### Read-only stock views
 
@@ -155,7 +180,7 @@ ADD and STOCK bundles are atomic: an invalid item or quantity rejects the entire
 
 Names are matched case-insensitively, with basic singular/plural handling and the `Dino Fossil` alias for `Dinosaur Fossil`. Unknown or ambiguous items reject the whole operation. If any GIVE item has insufficient stock, nothing is changed and the reply shows the item, required quantity, and available quantity.
 
-Run `/help` anywhere in the configured server. Choose its **Stock overview (read only)** topic for `/stock` guidance or **Valid item names** for the current canonical names accepted by the bot; long catalogs and stock overviews are split across multiple private embed messages within Discord limits.
+Run `/help` anywhere in the configured server. Choose **Monthly financial reports** for the accounting formula, **Stock overview (read only)** for `/stock`, or **Valid item names** for canonical item names. Long catalogs, stock overviews, and financial histories are split across private embed messages within Discord limits.
 
 ## Start automatically when Windows logs in
 
@@ -174,7 +199,7 @@ The PC must remain powered on, online, and signed in.
 ## Troubleshooting
 
 - **Missing environment variables:** confirm the file is named `.env`, not `.env.txt`, and includes the guild and both channel IDs.
-- **`/help` or `/stock` is missing:** confirm the bot was invited with `applications.commands`, the guild ID is correct, and the startup console says both commands are ready.
+- **A slash command is missing:** confirm the bot was invited with `applications.commands`, the guild ID is correct, and the startup console says `/help`, `/stock`, `/monthly`, and `/months` are ready.
 - **Messages are ignored:** confirm you used the correct format in the correct channel and enabled Message Content Intent.
 - **Unknown item:** run `/help` with the **Valid item names** topic and copy a canonical active name.
 - **ADD versus STOCK:** use ADD to increase current inventory; use STOCK only to set an exact physical count.

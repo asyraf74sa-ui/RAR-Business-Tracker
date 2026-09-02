@@ -2,14 +2,20 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildGuildCommandDefinitions, syncGuildCommands } from '../src/command-registration.js'
 
-test('guild definitions register /help and autocomplete-enabled /stock', () => {
+test('guild definitions register help, stock, and monthly reporting commands', () => {
   const definitions = buildGuildCommandDefinitions()
-  assert.deepEqual(definitions.map(({ name }) => name), ['help', 'stock'])
+  assert.deepEqual(definitions.map(({ name }) => name), ['help', 'stock', 'monthly', 'months'])
 
   const stock = definitions.find(({ name }) => name === 'stock')
   assert.equal(stock.options[0].name, 'item')
   assert.equal(stock.options[0].required, false)
   assert.equal(stock.options[0].autocomplete, true)
+
+  const monthly = definitions.find(({ name }) => name === 'monthly')
+  assert.equal(monthly.options[0].name, 'month')
+  assert.equal(monthly.options[0].required, false)
+  assert.equal(monthly.options[0].min_length, 7)
+  assert.equal(monthly.options[0].max_length, 7)
 })
 
 test('guild command registration is idempotent and preserves unrelated commands', async () => {
@@ -41,9 +47,11 @@ test('guild command registration is idempotent and preserves unrelated commands'
   await syncGuildCommands(guild)
   await syncGuildCommands(guild)
 
-  assert.deepEqual(createdNames, ['stock'])
-  assert.deepEqual(editedNames, ['help', 'help', 'stock'])
+  assert.deepEqual(createdNames, ['stock', 'monthly', 'months'])
+  assert.deepEqual(editedNames, ['help', 'help', 'stock', 'monthly', 'months'])
   assert.equal([...state.values()].filter(({ name }) => name === 'help').length, 1)
   assert.equal([...state.values()].filter(({ name }) => name === 'stock').length, 1)
+  assert.equal([...state.values()].filter(({ name }) => name === 'monthly').length, 1)
+  assert.equal([...state.values()].filter(({ name }) => name === 'months').length, 1)
   assert.ok([...state.values()].some(({ name }) => name === 'unrelated'))
 })

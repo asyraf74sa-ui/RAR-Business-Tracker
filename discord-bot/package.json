@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "test": "node --test",
-    "check": "node --check src/index.js && node --check src/parser.js && node --check src/acquisition-parser.js && node --check src/catalog.js && node --check src/help.js && node --check src/request-id.js && node --check src/stock-results.js && node --check src/stock-view.js && node --check src/stock-command.js && node --check src/command-registration.js && node --check src/supabase.js"
+    "check": "node --check src/index.js && node --check src/parser.js && node --check src/acquisition-parser.js && node --check src/catalog.js && node --check src/help.js && node --check src/request-id.js && node --check src/stock-results.js && node --check src/stock-view.js && node --check src/stock-command.js && node --check src/monthly-finance.js && node --check src/monthly-command.js && node --check src/command-registration.js && node --check src/supabase.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.112.4",
