@@ -1,4 +1,4 @@
-import { LoaderCircle, Search, Sparkles } from 'lucide-react'
+import { LoaderCircle, Search, Sparkles, X } from 'lucide-react'
 import { formatMoney, formatQuantity } from '../lib/format.js'
 import { CURRENCIES } from '../lib/constants.js'
 
@@ -136,7 +136,7 @@ export function Dialog({ open, title, description, onClose, children }) {
             <h2 id="dialog-title">{title}</h2>
             {description && <p>{description}</p>}
           </div>
-          <IconButton label="Close" onClick={onClose}>×</IconButton>
+          <IconButton label="Close" onClick={onClose}><X size={18} /></IconButton>
         </div>
         {children}
       </section>

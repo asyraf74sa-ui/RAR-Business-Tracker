@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Coins, History, Sparkles } from 'lucide-react'
+import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Gem, History, Sparkles } from 'lucide-react'
 import { Button, Card, EmptyState, Field, PageHeader, SectionHeading, StockPill } from '../components/ui.jsx'
 import { formatDateTime, formatQuantity, gemRange, getRequestId, localDateTimeValue, numbersEqual, rotateRequestId, toNumber } from '../lib/format.js'
 import { readableError, supabase } from '../lib/supabase.js'
@@ -93,7 +93,7 @@ export default function Gems({ data, refresh, notify }) {
       <PageHeader eyebrow="Gem economy" title="Move value without losing stock" description="Convert items to Gems or spend Gems on items. Both sides are recorded together." />
 
       <Card className="gem-balance-card">
-        <div className="gem-orb"><Coins size={30} /></div>
+        <div className="gem-orb"><Gem size={30} /></div>
         <div><span>Current Gem balance</span><strong>{formatQuantity(gemItem?.stock || 0)}</strong><small>Gems stay separate from physical item units.</small></div>
         <Sparkles className="gem-balance-card__sparkle" size={50} />
       </Card>

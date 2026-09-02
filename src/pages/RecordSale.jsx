@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Calculator, Coins, Minus, Plus, ReceiptText, ShoppingBag } from 'lucide-react'
+import { AlertTriangle, Calculator, Coins, Minus, Plus, ReceiptText, ShoppingBag, WalletCards } from 'lucide-react'
 import { Button, Card, Field, PageHeader, SectionHeading, StockPill } from '../components/ui.jsx'
 import { CLASSIFICATIONS, CURRENCIES } from '../lib/constants.js'
 import { formatMoney, formatQuantity, getRequestId, localDateTimeValue, numbersEqual, rotateRequestId, toNumber } from '../lib/format.js'
@@ -135,6 +135,7 @@ export default function RecordSale({ data, refresh, notify, onNavigate }) {
           <Card className="form-card">
             <SectionHeading title="Sale details" description="Enter what actually reached your wallet and the fee charged." />
             <div className="form-grid form-grid--2">
+              <div className="form-section-label"><ReceiptText size={15} />Transaction</div>
               <Field label="Date & time"><input type="datetime-local" value={form.sold_at} onChange={(event) => updateForm('sold_at', event.target.value)} required /></Field>
               <Field label="Platform">
                 <select value={form.platform} onChange={(event) => updateForm('platform', event.target.value)} required>
@@ -144,6 +145,7 @@ export default function RecordSale({ data, refresh, notify, onNavigate }) {
               </Field>
               <Field label="Currency"><select value={form.currency} onChange={(event) => updateForm('currency', event.target.value)}>{CURRENCIES.map((currency) => <option key={currency}>{currency}</option>)}</select></Field>
               <Field label="Classification"><select value={form.classification} onChange={(event) => updateForm('classification', event.target.value)}>{CLASSIFICATIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></Field>
+              <div className="form-section-label"><WalletCards size={15} />Payment</div>
               <Field label="Actual wallet / net credit" hint="What you received after fees"><div className="money-input"><span>{form.currency}</span><input type="number" min="0" step="any" inputMode="decimal" placeholder="0.00" value={form.net_credit} onChange={(event) => updateForm('net_credit', event.target.value)} required /></div></Field>
               <Field label="Platform fee" hint="Enter the actual fee amount"><div className="money-input"><span>{form.currency}</span><input type="number" min="0" step="any" inputMode="decimal" placeholder="0.00" value={form.platform_fee} onChange={(event) => updateForm('platform_fee', event.target.value)} required /></div></Field>
             </div>

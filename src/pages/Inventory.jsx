@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ClipboardCheck, Coins, RotateCcw, Save } from 'lucide-react'
+import { Check, ClipboardCheck, Coins, Leaf, RotateCcw, Save } from 'lucide-react'
 import { Button, Card, EmptyState, PageHeader, SectionHeading, StockPill } from '../components/ui.jsx'
 import { supabase, readableError } from '../lib/supabase.js'
 import { formatQuantity, getRequestId, numbersEqual, rotateRequestId, toNumber } from '../lib/format.js'
@@ -12,7 +12,7 @@ function StocktakeRow({ item, value, onChange }) {
     <div className="stocktake-row">
       <div className="stocktake-row__item">
         <div className={`item-icon ${item.kind === 'currency' ? 'item-icon--gold' : ''}`}>{item.name.slice(0, 1).toUpperCase()}</div>
-        <div><strong>{item.name}</strong><span>{item.gem_value_min == null ? 'Gem value not set' : item.gem_value_min === item.gem_value_max ? `${formatQuantity(item.gem_value_min)} gems` : `${formatQuantity(item.gem_value_min)}–${formatQuantity(item.gem_value_max)} gems`}</span></div>
+        <div><strong>{item.name}{item.is_farm_item && <span className="farm-item-badge"><Leaf size={12} />Farm</span>}</strong><span>{item.gem_value_min == null ? 'Gem value not set' : item.gem_value_min === item.gem_value_max ? `${formatQuantity(item.gem_value_min)} gems` : `${formatQuantity(item.gem_value_min)}–${formatQuantity(item.gem_value_max)} gems`}</span></div>
       </div>
       <div className="stocktake-row__tracked"><small>Tracked</small><StockPill value={item.stock} /></div>
       <label className="stocktake-row__count"><span>Actual count</span><input type="number" min="0" step="any" inputMode="decimal" value={value} onChange={(event) => onChange(event.target.value)} /></label>

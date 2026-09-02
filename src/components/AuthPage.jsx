@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { ArrowRight, BarChart3, Boxes, CheckCircle2, Eye, EyeOff, Leaf, LockKeyhole, Mail } from 'lucide-react'
+import { ArrowRight, Boxes, CheckCircle2, Eye, EyeOff, Gem, Leaf, LockKeyhole, Mail, WalletCards } from 'lucide-react'
 import { Button, Field } from './ui.jsx'
 
 export default function AuthPage({ onAuthenticate }) {
@@ -50,38 +50,27 @@ export default function AuthPage({ onAuthenticate }) {
 
   return (
     <div className="auth-page">
-      <section className="auth-story">
-        <div className="auth-story__top">
-          <div className="brand brand--light">
-            <span className="brand-mark">R</span>
-            <div><strong>RAR</strong><span>Business tracker</span></div>
-          </div>
-          <span className="auth-story__tag">Built for restaurant traders</span>
+      <div className="auth-page__shape auth-page__shape--one" />
+      <div className="auth-page__shape auth-page__shape--two" />
+      <header className="auth-product">
+        <div className="brand brand--product">
+          <span className="brand-mark" aria-hidden="true">R</span>
+          <div><strong>RAR Business Tracker</strong><span>Run a Restaurant</span></div>
         </div>
-        <div className="auth-story__content">
-          <p className="eyebrow">One source of truth</p>
-          <h1>Know what sold.<br />Know what’s in stock.</h1>
-          <p>Track every bundle, gem conversion, supplier purchase, and farming cycle without losing sight of your real inventory.</p>
-          <div className="auth-benefits">
-            <div><span><BarChart3 size={20} /></span><strong>Separate currency totals</strong><small>USD, MYR, PHP, and IDR stay cleanly apart.</small></div>
-            <div><span><Boxes size={20} /></span><strong>Live inventory</strong><small>Every transaction moves stock exactly once.</small></div>
-            <div><span><Leaf size={20} /></span><strong>Farm forecasting</strong><small>Sync cycles and see your monthly production.</small></div>
-          </div>
-        </div>
-        <p className="auth-story__footer"><CheckCircle2 size={16} /> Secured by your existing Supabase account</p>
-      </section>
+      </header>
 
       <main className="auth-panel">
         <div className="auth-card">
           <div className="auth-card__heading">
-            <p className="eyebrow">Welcome to your back office</p>
-            <h2>{mode === 'login' ? 'Sign in to continue' : 'Create your account'}</h2>
-            <p>{mode === 'login' ? 'Your sales and stock are waiting.' : 'Start with your own private RAR workspace.'}</p>
+            <span className="auth-card__icon"><WalletCards size={22} /></span>
+            <p className="eyebrow">Your restaurant back office</p>
+            <h1>{mode === 'login' ? 'Welcome back' : 'Create your workspace'}</h1>
+            <p>{mode === 'login' ? 'Sign in to review your wallet, stock, Gems, and farm.' : 'Start a private workspace for your Run a Restaurant business.'}</p>
           </div>
 
           <div className="auth-tabs" role="tablist" aria-label="Authentication mode">
-            <button role="tab" aria-selected={mode === 'login'} className={mode === 'login' ? 'is-active' : ''} onClick={() => switchMode('login')}>Sign in</button>
-            <button role="tab" aria-selected={mode === 'signup'} className={mode === 'signup' ? 'is-active' : ''} onClick={() => switchMode('signup')}>Create account</button>
+            <button type="button" role="tab" aria-selected={mode === 'login'} className={mode === 'login' ? 'is-active' : ''} onClick={() => switchMode('login')}>Sign in</button>
+            <button type="button" role="tab" aria-selected={mode === 'signup'} className={mode === 'signup' ? 'is-active' : ''} onClick={() => switchMode('signup')}>Create account</button>
           </div>
 
           <form className="auth-form" onSubmit={submit}>
@@ -97,11 +86,19 @@ export default function AuthPage({ onAuthenticate }) {
               </Field>
             )}
             {message && <div className={`form-message form-message--${message.type}`} role="alert">{message.text}</div>}
-            <Button type="submit" loading={loading} className="auth-submit">{mode === 'login' ? 'Sign in' : 'Create account'}<ArrowRight size={18} /></Button>
+            <Button type="submit" loading={loading} className="auth-submit">{mode === 'login' ? 'Sign in securely' : 'Create account'}<ArrowRight size={18} /></Button>
           </form>
-          <p className="auth-privacy">Your session stays signed in on this device until you sign out.</p>
+
+          <div className="auth-trust"><CheckCircle2 size={16} /><span>Protected by your existing Supabase account</span></div>
         </div>
       </main>
+
+      <section className="auth-benefits" aria-label="Product benefits">
+        <div><span><WalletCards size={19} /></span><p><strong>Clean wallet totals</strong><small>Every currency stays separate.</small></p></div>
+        <div><span><Boxes size={19} /></span><p><strong>Accurate inventory</strong><small>Each action moves stock once.</small></p></div>
+        <div><span><Gem size={19} /></span><p><strong>Gem tracking</strong><small>Conversions stay connected.</small></p></div>
+        <div><span><Leaf size={19} /></span><p><strong>Farm forecasting</strong><small>Plan every production cycle.</small></p></div>
+      </section>
     </div>
   )
 }

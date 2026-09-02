@@ -124,7 +124,7 @@ export default function Settings({ data, user, refresh, notify }) {
 
   return (
     <div className="page-stack">
-      <PageHeader eyebrow="Catalog & preferences" title="Items & settings" description="Maintain Gem values, farm eligibility, item availability, and marketplace fee guides." action={<Button onClick={() => setAddOpen(true)}><Plus size={18} />Add item</Button>} />
+      <PageHeader eyebrow="Prices & setup" title="Catalog controls" description="Maintain Gem values, farm eligibility, item availability, and marketplace fee guides." action={<Button onClick={() => setAddOpen(true)}><Plus size={18} />Add item</Button>} />
 
       <Card className="settings-card">
         <SectionHeading title="Item catalog" description="Disabling an item hides it from new transactions without deleting its history." action={<SearchInput value={search} onChange={setSearch} placeholder="Find an item…" />} />

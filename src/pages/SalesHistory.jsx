@@ -1,8 +1,26 @@
 import { useMemo, useState } from 'react'
-import { CalendarDays, Filter, History, PackageSearch, ReceiptText, X } from 'lucide-react'
+import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, CalendarDays, Filter, Gem, History, Leaf, PackagePlus, PackageSearch, ReceiptText, SlidersHorizontal, X } from 'lucide-react'
 import { Button, Card, CurrencyStrip, EmptyState, PageHeader, SearchInput, SectionHeading, StatusBadge } from '../components/ui.jsx'
 import { CLASSIFICATIONS, CURRENCIES } from '../lib/constants.js'
 import { formatDateTime, formatMoney, formatQuantity, groupCurrencyTotals, toNumber } from '../lib/format.js'
+
+const EVENT_META = {
+  farm: { label: 'Farm', icon: Leaf, tone: 'green' },
+  supplier_purchase: { label: 'Supplier purchase', icon: PackagePlus, tone: 'blue' },
+  gem_conversion: { label: 'Item to Gems', icon: Gem, tone: 'purple' },
+  gem_purchase: { label: 'Gems to item', icon: Gem, tone: 'purple' },
+  trade: { label: 'Trade', icon: ArrowRightLeft, tone: 'gold' },
+  manual_add: { label: 'Manual add', icon: ArrowDownLeft, tone: 'green' },
+  manual_remove: { label: 'Manual remove', icon: ArrowUpRight, tone: 'red' },
+  stocktake: { label: 'Stock adjustment', icon: SlidersHorizontal, tone: 'neutral' },
+  stock_adjustment: { label: 'Stock adjustment', icon: SlidersHorizontal, tone: 'neutral' },
+  history_import: { label: 'Historical import', icon: History, tone: 'blue' },
+  sale: { label: 'Sale', icon: ReceiptText, tone: 'red' },
+}
+
+function eventMeta(type) {
+  return EVENT_META[type] || { label: String(type || 'Inventory event').replaceAll('_', ' '), icon: History, tone: 'neutral' }
+}
 
 export default function SalesHistory({ data, onNavigate }) {
   const [filters, setFilters] = useState({ search: '', platform: '', currency: '', classification: '', from: '', to: '' })
@@ -67,6 +85,28 @@ export default function SalesHistory({ data, onNavigate }) {
               {rows.map((sale) => <article className="sale-history-card" key={sale.id}><header><div><span className="platform-chip">{sale.platform.slice(0, 1)}</span><div><strong>{sale.platform}</strong><small><CalendarDays size={13} />{formatDateTime(sale.sold_at)}</small></div></div><StatusBadge tone={sale.classification === 'normal' ? 'success' : 'neutral'}>{sale.classification.replace('_', ' ')}</StatusBadge></header><div className="sale-history-card__bundle">{sale.lines.map((line) => <span key={line.id}>{formatQuantity(line.quantity)}× {line.item?.name || 'Item'}</span>)}</div><div className="sale-history-card__money"><span>Net<strong>{formatMoney(sale.net_credit, sale.currency)}</strong></span><span>Fee<strong>{formatMoney(sale.platform_fee, sale.currency)}</strong></span><span>Gross<strong>{formatMoney(toNumber(sale.net_credit) + toNumber(sale.platform_fee), sale.currency)}</strong></span></div>{sale.notes && <p><ReceiptText size={14} />{sale.notes}</p>}</article>)}
             </div>
           </>
+        )}
+      </Card>
+
+      <Card className="dashboard-panel inventory-history-card">
+        <SectionHeading title="Inventory events" description="Recent stock movement across sales, purchases, Gems, farming, trades, and adjustments." action={<History size={19} />} />
+        {data.inventoryEvents.length === 0 ? <EmptyState title="No inventory events yet" description="Stock movements will appear here as you operate the business." icon={History} /> : (
+          <div className="inventory-history-list">
+            {data.inventoryEvents.slice(0, 50).map((event) => {
+              const meta = eventMeta(event.event_type)
+              const Icon = meta.icon
+              const item = itemMap.get(event.item_id)
+              const quantity = toNumber(event.quantity_delta)
+              return (
+                <article className="inventory-event" key={event.id}>
+                  <span className={`inventory-event__icon inventory-event__icon--${meta.tone}`}><Icon size={17} /></span>
+                  <div className="inventory-event__main"><strong>{item?.name || 'Inventory item'}</strong><span>{event.notes || 'Recorded inventory movement'}</span></div>
+                  <span className={`inventory-event__type inventory-event__type--${meta.tone}`}>{meta.label}</span>
+                  <div className="inventory-event__amount"><strong className={quantity > 0 ? 'text-positive' : quantity < 0 ? 'text-negative' : ''}>{quantity > 0 ? '+' : ''}{formatQuantity(quantity)}</strong><span>{formatDateTime(event.event_at)}</span></div>
+                </article>
+              )
+            })}
+          </div>
         )}
       </Card>
     </div>
