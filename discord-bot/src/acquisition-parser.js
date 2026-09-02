@@ -12,6 +12,8 @@ export function detectAcquisitionOperation(content) {
   if (/^RAR\s+PURCHASE\b/i.test(value)) return 'purchase'
   if (/^RAR\s+FARM\b/i.test(value)) return 'farm'
   if (/^RAR\s+TRADE\b/i.test(value)) return 'trade'
+  if (/^RAR\s+ADD\b/i.test(value)) return 'manual_add'
+  if (/^RAR\s+STOCK\b/i.test(value)) return 'stock_reconcile'
   return null
 }
 
@@ -20,7 +22,35 @@ export function parseAcquisitionMessage(content) {
   if (operation === 'purchase') return parsePurchaseMessage(content)
   if (operation === 'farm') return parseFarmMessage(content)
   if (operation === 'trade') return parseTradeMessage(content)
-  throw new AcquisitionParseError('Expected RAR PURCHASE, RAR FARM, or RAR TRADE.')
+  if (operation === 'manual_add') return parseAddMessage(content)
+  if (operation === 'stock_reconcile') return parseStockMessage(content)
+  throw new AcquisitionParseError('Expected RAR PURCHASE, RAR FARM, RAR TRADE, RAR ADD, or RAR STOCK.')
+}
+
+export function parseAddMessage(content) {
+  const lines = nonEmptyLines(content)
+  if (lines.length !== 1) throw new AcquisitionParseError('RAR ADD must be written on one line.')
+
+  const header = lines[0].match(/^RAR\s+ADD\s*(?:-|\u2013|\u2014|:)\s*(.+)$/i)
+  if (!header) throw new AcquisitionParseError('Use "RAR ADD - <quantity> <item>".')
+
+  return {
+    type: 'manual_add',
+    items: parseItemList(header[1]),
+  }
+}
+
+export function parseStockMessage(content) {
+  const lines = nonEmptyLines(content)
+  if (lines.length !== 1) throw new AcquisitionParseError('RAR STOCK must be written on one line.')
+
+  const header = lines[0].match(/^RAR\s+STOCK\s*(?:-|\u2013|\u2014|:)\s*(.+)$/i)
+  if (!header) throw new AcquisitionParseError('Use "RAR STOCK - <count> <item>".')
+
+  return {
+    type: 'stock_reconcile',
+    items: parseItemList(header[1], { allowZero: true }),
+  }
 }
 
 export function parsePurchaseMessage(content) {

@@ -100,6 +100,14 @@ export function recordTrade(supabase, payload, options) {
   return callRpcWithRetry(supabase, 'rar_record_trade', payload, options)
 }
 
+export function addStockBundle(supabase, payload, options) {
+  return callRpcWithRetry(supabase, 'rar_add_stock_bundle', payload, options)
+}
+
+export function reconcileStockBundle(supabase, payload, options) {
+  return callRpcWithRetry(supabase, 'rar_reconcile_stock_batch', payload, options)
+}
+
 export async function callRpcWithRetry(supabase, functionName, payload, { attempts = 3 } = {}) {
   let lastError
 

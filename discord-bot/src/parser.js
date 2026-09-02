@@ -71,21 +71,21 @@ export function parseSaleMessage(content) {
   }
 }
 
-export function parseItemList(itemText) {
+export function parseItemList(itemText, { allowZero = false } = {}) {
   const segments = splitItemSegments(itemText)
   if (segments.length === 0) {
     throw new SaleParseError('No sale items were found.')
   }
 
   return segments.map((segment) => {
-    const match = segment.match(/^([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)\s+(.+?)$/)
+    const match = segment.match(/^(-?[0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)\s+(.+?)$/)
     if (!match) {
       throw new SaleParseError(`Could not parse item: ${segment}`)
     }
 
     const quantity = Number(match[1].replaceAll(',', ''))
     const name = match[2].replace(/[.,;+]+$/g, '').replace(/\s+/g, ' ').trim()
-    if (!Number.isFinite(quantity) || quantity <= 0 || !name) {
+    if (!Number.isFinite(quantity) || quantity < 0 || (!allowZero && quantity === 0) || !name) {
       throw new SaleParseError(`Invalid item quantity or name: ${segment}`)
     }
 

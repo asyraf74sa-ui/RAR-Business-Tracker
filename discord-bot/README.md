@@ -3,7 +3,7 @@
 This folder contains the always-on Windows bot for the existing RAR Business Tracker. It keeps sales and inventory-acquisition messages in separate Discord channels and uses authenticated Supabase RPCs for atomic database changes.
 
 - The **sales channel** accepts only `RAR - ...` sales. Existing sale behavior and duplicate IDs are preserved.
-- The **acquisition channel** accepts purchases, farm claims, and in-game trades. Sale messages in this channel are ignored.
+- The **acquisition channel** accepts purchases, farm claims, in-game trades, manual additions, and exact stocktakes. Sale messages in this channel are ignored.
 - `/help` is registered as a server command and responds privately. Its **Valid item names** topic refreshes the active catalog from Supabase each time.
 
 Every accepted Discord message gets a deterministic request UUID. Retrying a message cannot create a duplicate operation. Editing a recorded message does not rewrite history; the bot tells you to correct it through the RAR tracker.
@@ -61,7 +61,7 @@ The two channel IDs must be different. Use the normal Supabase account that owns
 
 ## 5. Apply the acquisition migration
 
-The repository migration `supabase/migrations/20260902054745_discord_acquisition_operations.sql` adds the atomic purchase-bundle and trade RPCs. Apply repository migrations to the same Supabase project before starting this version of the bot. The migration preserves existing rows, sale behavior, and farm configuration.
+The repository migrations `supabase/migrations/20260902054745_discord_acquisition_operations.sql` and `supabase/migrations/20260902064501_discord_manual_add.sql` provide the new atomic RPCs. Exact stocktakes reuse the existing `rar_reconcile_stock_batch` RPC. Apply repository migrations to the same Supabase project before starting this version of the bot. The migrations preserve existing rows, sale behavior, and farm configuration.
 
 ## 6. Test and start
 
@@ -109,6 +109,32 @@ GIVE - 1 PIANO
 RECEIVE - 6,000 GEMS
 ```
 
+Manual addition — **ADD increases the existing quantity** and records no cash cost:
+
+```text
+RAR ADD - 5 HOST STATION
+```
+
+Bundles may use commas or plus signs:
+
+```text
+RAR ADD - 5 HOST STATION, 3 GREENHOUSE, 2 DINOSAUR FOSSIL
+RAR ADD - 2 PIANO + 4,000 GEMS
+```
+
+For example, if Host Station is currently 10, `RAR ADD - 5 HOST STATION` changes it to 15. ADD quantities must be greater than zero. Use `RAR PURCHASE` instead when the acquisition has a cash cost.
+
+Physical stocktake — **STOCK replaces the tracked quantity with the exact counted quantity**:
+
+```text
+RAR STOCK - 17 HOST STATION
+RAR STOCK - 17 HOST STATION, 8 GREENHOUSE, 46,398 GEMS
+```
+
+If Host Station is currently 10, `RAR STOCK - 5 HOST STATION` sets it to exactly 5; it does not add 5. A counted quantity of zero is valid. Each reply shows the previous quantity, counted quantity, and adjustment, including `no change` when they are equal.
+
+ADD and STOCK bundles are atomic: an invalid item or quantity rejects the entire message without a partial inventory change. Both use the Discord timestamp and a deterministic operation-specific request ID, so the same message cannot change stock twice.
+
 Names are matched case-insensitively, with basic singular/plural handling and the `Dino Fossil` alias for `Dinosaur Fossil`. Unknown or ambiguous items reject the whole operation. If any GIVE item has insufficient stock, nothing is changed and the reply shows the item, required quantity, and available quantity.
 
 Run `/help` anywhere in the configured server. Choose its **Valid item names** topic for the current canonical names accepted by the bot; long catalogs are split across multiple private embed messages within Discord limits.
@@ -133,6 +159,7 @@ The PC must remain powered on, online, and signed in.
 - **`/help` is missing:** confirm the bot was invited with `applications.commands`, the guild ID is correct, and the startup console says the command is ready.
 - **Messages are ignored:** confirm you used the correct format in the correct channel and enabled Message Content Intent.
 - **Unknown item:** run `/help` with the **Valid item names** topic and copy a canonical active name.
+- **ADD versus STOCK:** use ADD to increase current inventory; use STOCK only to set an exact physical count.
 - **Insufficient stock:** correct inventory in the tracker; a failed sale or trade does not partially update stock.
 - **Database function not found:** apply the acquisition migration to the configured Supabase project, then restart the bot.
 - **Network interruption:** discord.js reconnects automatically. RPC retries are bounded and reuse the same deterministic request UUID.

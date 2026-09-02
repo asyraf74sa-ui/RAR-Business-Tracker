@@ -18,9 +18,13 @@ test('acquisition operation types are stable and distinct without changing sale 
   const purchase = discordRequestId({ ...message, operationType: 'purchase' })
   const farm = discordRequestId({ ...message, operationType: 'farm' })
   const trade = discordRequestId({ ...message, operationType: 'trade' })
+  const manualAdd = discordRequestId({ ...message, operationType: 'manual_add' })
+  const stockReconcile = discordRequestId({ ...message, operationType: 'stock_reconcile' })
 
   assert.equal(purchase, discordRequestId({ ...message, operationType: 'PURCHASE' }))
-  assert.equal(new Set([sale, purchase, farm, trade]).size, 4)
+  assert.equal(manualAdd, discordRequestId({ ...message, operationType: 'MANUAL_ADD' }))
+  assert.equal(stockReconcile, discordRequestId({ ...message, operationType: 'stock_reconcile' }))
+  assert.equal(new Set([sale, purchase, farm, trade, manualAdd, stockReconcile]).size, 6)
 })
 
 test('different Discord message IDs produce different request UUIDs', () => {

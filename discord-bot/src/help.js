@@ -7,6 +7,8 @@ export const HELP_TOPICS = [
   { name: 'Purchases', value: 'purchase' },
   { name: 'Farming', value: 'farm' },
   { name: 'Trades', value: 'trade' },
+  { name: 'Add stock', value: 'add' },
+  { name: 'Stocktake / reconcile', value: 'stock' },
   { name: 'Valid item names', value: 'items' },
 ]
 
@@ -23,6 +25,11 @@ export function buildHelpPages(topic = 'overview', itemNames = []) {
       '```text\nRAR FARM - <number> CYCLE\n```',
       '**TRADE — acquisition channel only**',
       '```text\nRAR TRADE\nGIVE - <quantity> <item>\nRECEIVE - <quantity> <item>\n```',
+      '**ADD STOCK — acquisition channel only**',
+      '```text\nRAR ADD - <quantity> <item>, <quantity> <item>\n```',
+      '**STOCKTAKE / RECONCILE — acquisition channel only**',
+      '```text\nRAR STOCK - <count> <item>, <count> <item>\n```',
+      '**ADD increases** the current quantity. **STOCK sets** the exact counted quantity.',
       'Choose the **Valid item names** topic to refresh and display every active canonical item name.',
     ].join('\n'),
     sales: [
@@ -44,6 +51,24 @@ export function buildHelpPages(topic = 'overview', itemNames = []) {
       '**In-game trade**',
       '```text\nRAR TRADE\nGIVE - 1 PIANO\nRECEIVE - 6,000 GEMS\n```',
       'GIVE decreases inventory and RECEIVE increases inventory in one atomic operation. It records no cash sale or purchase.',
+    ].join('\n'),
+    add: [
+      '**Manual stock addition**',
+      'Use this when you acquired inventory and simply want to **increase** the tracked quantity.',
+      '```text\nRAR ADD - <quantity> <item>, <quantity> <item>\n```',
+      '**Example**',
+      '```text\nRAR ADD - 5 HOST STATION, 3 GREENHOUSE\n```',
+      'Current 10 Host Station + ADD 5 = 15 Host Station.',
+      'This does not record cash cost. For stock purchased with money, use `RAR PURCHASE` instead.',
+    ].join('\n'),
+    stock: [
+      '**Stock reconciliation / physical count**',
+      'Use this when you physically counted inventory and want to **set** the exact current quantity.',
+      '```text\nRAR STOCK - <count> <item>, <count> <item>\n```',
+      '**Example**',
+      '```text\nRAR STOCK - 17 HOST STATION, 8 GREENHOUSE, 46,398 GEMS\n```',
+      'If tracked Host Station stock was 10, `RAR STOCK - 17 HOST STATION` sets it to exactly 17. It does **not** add 17.',
+      'Use this for stocktakes and corrections.',
     ].join('\n'),
   }
 

@@ -1,12 +1,36 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildHelpPages, buildItemHelpPages } from '../src/help.js'
+import { buildHelpPages, buildItemHelpPages, HELP_TOPICS } from '../src/help.js'
+
+test('/help exposes add and stock topic choices', () => {
+  const values = HELP_TOPICS.map(({ value }) => value)
+  assert.ok(values.includes('add'))
+  assert.ok(values.includes('stock'))
+})
 
 test('plain help gives a useful overview of every operation', () => {
   const [page] = buildHelpPages()
-  for (const operation of ['SALES', 'PURCHASE', 'FARM', 'TRADE']) {
+  for (const operation of ['SALES', 'PURCHASE', 'FARM', 'TRADE', 'ADD STOCK', 'STOCKTAKE / RECONCILE']) {
     assert.match(page.description, new RegExp(operation))
   }
+})
+
+test('/help add explains that ADD increases rather than sets stock', () => {
+  const [page] = buildHelpPages('add')
+  assert.equal(page.title, 'RAR Bot Help — add')
+  assert.match(page.description, /Manual stock addition/)
+  assert.match(page.description, /increase/i)
+  assert.match(page.description, /RAR ADD - 5 HOST STATION, 3 GREENHOUSE/)
+  assert.match(page.description, /does not record cash cost/i)
+})
+
+test('/help stock explains that STOCK sets an exact count rather than adding it', () => {
+  const [page] = buildHelpPages('stock')
+  assert.equal(page.title, 'RAR Bot Help — stock')
+  assert.match(page.description, /Stock reconciliation \/ physical count/)
+  assert.match(page.description, /set/i)
+  assert.match(page.description, /46,398 GEMS/)
+  assert.match(page.description, /does \*\*not\*\* add 17/i)
 })
 
 test('live item help sorts every exact name and stays within Discord embed limits', () => {

@@ -3,10 +3,12 @@ import test from 'node:test'
 import {
   AcquisitionParseError,
   detectAcquisitionOperation,
+  parseAddMessage,
   parseAcquisitionMessage,
   parseCashAmount,
   parseFarmMessage,
   parsePurchaseMessage,
+  parseStockMessage,
   parseTradeMessage,
 } from '../src/acquisition-parser.js'
 
@@ -14,7 +16,60 @@ test('classifies only acquisition headers as acquisition operations', () => {
   assert.equal(detectAcquisitionOperation('RAR PURCHASE - 1 PIANO\n25 USD'), 'purchase')
   assert.equal(detectAcquisitionOperation('RAR FARM - 1 CYCLE'), 'farm')
   assert.equal(detectAcquisitionOperation('RAR TRADE\nGIVE - 1 PIANO\nRECEIVE - 1 GEMS'), 'trade')
+  assert.equal(detectAcquisitionOperation('RAR ADD - 1 PIANO'), 'manual_add')
+  assert.equal(detectAcquisitionOperation('RAR STOCK - 1 PIANO'), 'stock_reconcile')
   assert.equal(detectAcquisitionOperation('RAR - 1 PIANO\n10 US\n1 US TAX\nZEUSX'), null)
+})
+
+test('parses a single-item manual stock addition', () => {
+  assert.deepEqual(parseAddMessage('RAR ADD - 5 HOST STATION'), {
+    type: 'manual_add',
+    items: [{ quantity: 5, name: 'HOST STATION' }],
+  })
+})
+
+test('parses comma- and plus-separated manual-add bundles', () => {
+  assert.deepEqual(parseAddMessage('RAR ADD - 5 HOST STATION, 3 GREENHOUSE'), {
+    type: 'manual_add',
+    items: [
+      { quantity: 5, name: 'HOST STATION' },
+      { quantity: 3, name: 'GREENHOUSE' },
+    ],
+  })
+  assert.deepEqual(parseAddMessage('RAR ADD - 5 HOST STATION + 3 GREENHOUSE').items, [
+    { quantity: 5, name: 'HOST STATION' },
+    { quantity: 3, name: 'GREENHOUSE' },
+  ])
+})
+
+test('parses a comma-formatted Gems manual addition', () => {
+  assert.deepEqual(parseAddMessage('RAR ADD - 6,000 GEMS').items, [
+    { quantity: 6000, name: 'GEMS' },
+  ])
+})
+
+test('manual stock addition rejects zero and negative quantities', () => {
+  assert.throws(() => parseAddMessage('RAR ADD - 0 HOST STATION'))
+  assert.throws(() => parseAddMessage('RAR ADD - -1 HOST STATION'))
+})
+
+test('parses single and bundled exact stock counts', () => {
+  assert.deepEqual(parseStockMessage('RAR STOCK - 17 HOST STATION'), {
+    type: 'stock_reconcile',
+    items: [{ quantity: 17, name: 'HOST STATION' }],
+  })
+  assert.deepEqual(parseStockMessage('RAR STOCK - 17 HOST STATION, 8 GREENHOUSE, 46,398 GEMS').items, [
+    { quantity: 17, name: 'HOST STATION' },
+    { quantity: 8, name: 'GREENHOUSE' },
+    { quantity: 46398, name: 'GEMS' },
+  ])
+})
+
+test('exact stock counts allow zero but reject negative quantities', () => {
+  assert.deepEqual(parseStockMessage('RAR STOCK - 0 HOST STATION').items, [
+    { quantity: 0, name: 'HOST STATION' },
+  ])
+  assert.throws(() => parseStockMessage('RAR STOCK - -1 HOST STATION'))
 })
 
 test('parses a single-item PHP purchase', () => {
@@ -90,6 +145,8 @@ test('dispatches acquisition formats to the matching parser', () => {
   assert.equal(parseAcquisitionMessage('RAR FARM - 1 CYCLE').type, 'farm')
   assert.equal(parseAcquisitionMessage('RAR PURCHASE - 1 PIANO\n$25').type, 'purchase')
   assert.equal(parseAcquisitionMessage('RAR TRADE\nGIVE - 1 PIANO\nRECEIVE - 1 GEMS').type, 'trade')
+  assert.equal(parseAcquisitionMessage('RAR ADD - 1 PIANO').type, 'manual_add')
+  assert.equal(parseAcquisitionMessage('RAR STOCK - 0 PIANO').type, 'stock_reconcile')
 })
 
 test('normalizes supported purchase currency variations', () => {

@@ -14,19 +14,24 @@ import {
 } from './acquisition-parser.js'
 import {
   AmbiguousItemError,
+  DuplicateItemError,
   InsufficientStockError,
   TradeValidationError,
   UnknownItemError,
   UnknownPlatformError,
   resolvePlatform,
+  resolveManualAddItems,
   resolvePurchaseItems,
   resolveSaleItems,
+  resolveStockItems,
   resolveTradeItems,
 } from './catalog.js'
 import { buildHelpPages, HELP_TOPICS } from './help.js'
 import { isSaleMessage, parseSaleMessage, SaleParseError } from './parser.js'
 import { discordRequestId } from './request-id.js'
+import { buildStockReconciliationResults, formatStockReconciliationLine } from './stock-results.js'
 import {
+  addStockBundle,
   authenticateSupabase,
   claimFarmCycles,
   createBotSupabaseClient,
@@ -36,6 +41,7 @@ import {
   loadCatalog,
   loadInventoryEvents,
   recordPurchaseBundle,
+  reconcileStockBundle,
   recordSale,
   recordTrade,
 } from './supabase.js'
@@ -161,14 +167,18 @@ async function processDiscordSale(message, { isEdit }) {
 
 async function processDiscordAcquisition(message, { isEdit }) {
   const operation = detectAcquisitionOperation(message.content)
-  const operationTypes = ['purchase', 'farm', 'trade']
+  const operationTypes = ['purchase', 'farm', 'trade', 'manual_add', 'stock_reconcile']
   const requestIds = operationTypes.map((type) => requestIdFor(message, type))
 
   try {
     if (isEdit) {
       const existing = await findRecordedInventoryOperation(supabase, requestIds)
       if (existing) {
-        await warnAlreadyRecorded(message, { isEdit: true, recordKind: 'record' })
+        await warnAlreadyRecorded(message, {
+          isEdit: true,
+          recordKind: 'record',
+          stockRecord: ['manual_add', 'stock_adjustment'].includes(existing.event_type),
+        })
         return
       }
     }
@@ -179,17 +189,23 @@ async function processDiscordAcquisition(message, { isEdit }) {
     const requestId = requestIdFor(message, parsed.type)
     const existing = await findRecordedInventoryOperation(supabase, [requestId])
     if (existing) {
-      await warnAlreadyRecorded(message, { isEdit, recordKind: 'record' })
+      await warnAlreadyRecorded(message, {
+        isEdit,
+        recordKind: 'record',
+        stockRecord: ['manual_add', 'stock_adjustment'].includes(existing.event_type),
+      })
       return
     }
 
     if (parsed.type === 'purchase') await processPurchase(message, parsed, requestId)
     else if (parsed.type === 'farm') await processFarm(message, parsed, requestId)
-    else await processTrade(message, parsed, requestId)
+    else if (parsed.type === 'trade') await processTrade(message, parsed, requestId)
+    else if (parsed.type === 'manual_add') await processManualAdd(message, parsed, requestId)
+    else await processStockReconciliation(message, parsed, requestId)
   } catch (error) {
     const label = operationLabel(operation)
     console.error(`${label} ${message.id} was not recorded: ${safeErrorMessage(error)}`)
-    await safeReply(message, `❌ ${label} not recorded\n${userFacingError(error, operation)}`)
+    await safeReply(message, `❌ ${operationFailureTitle(operation)}\n${userFacingError(error, operation)}`)
   }
 }
 
@@ -278,6 +294,63 @@ async function processTrade(message, parsed, requestId) {
   ].join('\n'))
 }
 
+async function processManualAdd(message, parsed, requestId) {
+  const catalog = await loadCatalog(supabase)
+  const resolvedItems = resolveManualAddItems(parsed.items, catalog.items)
+  const result = await addStockBundle(supabase, {
+    p_event_at: message.createdAt.toISOString(),
+    p_items: rpcItems(resolvedItems),
+    p_notes: `Recorded automatically from Discord manual-add message ${message.id}`,
+    p_request_id: requestId,
+  })
+
+  if (isDuplicateRpcResult(result)) {
+    await warnAlreadyRecorded(message, { isEdit: false, recordKind: 'record', stockRecord: true })
+    return
+  }
+
+  await safeReply(message, [
+    '✅ Stock added',
+    '',
+    ...resolvedItems.map(({ item, quantity }) => `+${formatQuantity(quantity)} ${item.name}`),
+  ].join('\n'))
+}
+
+async function processStockReconciliation(message, parsed, requestId) {
+  const catalog = await loadCatalog(supabase)
+  const resolvedItems = resolveStockItems(parsed.items, catalog.items)
+  const result = await reconcileStockBundle(supabase, {
+    p_counts: resolvedItems.map(({ item, quantity }) => ({
+      item_id: item.id,
+      counted_stock: quantity,
+    })),
+    p_event_at: message.createdAt.toISOString(),
+    p_notes: `Recorded automatically from Discord stocktake message ${message.id}`,
+    p_request_id: requestId,
+  })
+
+  if (isDuplicateRpcResult(result)) {
+    await warnAlreadyRecorded(message, { isEdit: false, recordKind: 'record', stockRecord: true })
+    return
+  }
+
+  let lines = []
+  try {
+    const events = await loadInventoryEvents(supabase, requestId)
+    lines = buildStockReconciliationResults(events).map(formatStockReconciliationLine)
+  } catch (error) {
+    console.error(
+      `Stock reconciliation ${message.id} was recorded, but its result could not be loaded: ${safeErrorMessage(error)}`,
+    )
+  }
+
+  await safeReply(message, [
+    '✅ Stock reconciled',
+    '',
+    ...(lines.length > 0 ? lines : ['Result breakdown unavailable; check the RAR tracker.']),
+  ].join('\n'))
+}
+
 async function registerGuildHelpCommand(readyClient) {
   const command = new SlashCommandBuilder()
     .setName('help')
@@ -317,13 +390,13 @@ async function processHelpInteraction(interaction) {
   }
 }
 
-async function warnAlreadyRecorded(message, { isEdit, recordKind }) {
+async function warnAlreadyRecorded(message, { isEdit, recordKind, stockRecord = false }) {
   if (isEdit) {
     if (warnedEditedMessages.has(message.id)) return
-    const replied = await safeReply(
-      message,
-      '⚠️ This record was already processed.\nMake corrections through the RAR tracker instead.',
-    )
+    const guidance = stockRecord
+      ? 'Make corrections through the RAR tracker or post a new stock record.'
+      : 'Make corrections through the RAR tracker instead.'
+    const replied = await safeReply(message, `⚠️ This record was already processed.\n${guidance}`)
     if (replied) warnedEditedMessages.add(message.id)
     return
   }
@@ -336,6 +409,7 @@ function userFacingError(error, operation) {
     return `Unknown item: ${error.itemName}\nUse /help with the Valid item names topic.`
   }
   if (error instanceof AmbiguousItemError) return error.message
+  if (error instanceof DuplicateItemError) return `${error.itemName} can appear only once in RAR STOCK.`
   if (error instanceof InsufficientStockError) {
     return insufficientStockText(error.itemName, error.required, error.available)
   }
@@ -403,7 +477,15 @@ function operationLabel(operation) {
   if (operation === 'purchase') return 'Purchase'
   if (operation === 'farm') return 'Farm'
   if (operation === 'trade') return 'Trade'
+  if (operation === 'manual_add') return 'Manual add'
+  if (operation === 'stock_reconcile') return 'Stock reconciliation'
   return 'Acquisition'
+}
+
+function operationFailureTitle(operation) {
+  if (operation === 'manual_add') return 'Stock not added'
+  if (operation === 'stock_reconcile') return 'Stock not reconciled'
+  return `${operationLabel(operation)} not recorded`
 }
 
 function nestedItemName(item) {

@@ -36,6 +36,14 @@ export class TradeValidationError extends Error {
   }
 }
 
+export class DuplicateItemError extends Error {
+  constructor(itemName) {
+    super(`Duplicate item: ${itemName}`)
+    this.name = 'DuplicateItemError'
+    this.itemName = itemName
+  }
+}
+
 export class UnknownPlatformError extends Error {
   constructor(platformName) {
     super(`Unknown or inactive platform: ${platformName}`)
@@ -54,6 +62,14 @@ export function resolvePurchaseItems(parsedItems, catalogItems) {
   return resolveItems(parsedItems, catalogItems, { allowedKinds: new Set(['item']) })
 }
 
+export function resolveManualAddItems(parsedItems, catalogItems) {
+  return resolveItems(parsedItems, catalogItems)
+}
+
+export function resolveStockItems(parsedItems, catalogItems) {
+  return resolveItems(parsedItems, catalogItems, { combineDuplicates: false })
+}
+
 export function resolveTradeItems(giveItems, receiveItems, catalogItems) {
   const give = resolveItems(giveItems, catalogItems)
   const receive = resolveItems(receiveItems, catalogItems)
@@ -64,7 +80,11 @@ export function resolveTradeItems(giveItems, receiveItems, catalogItems) {
   return { give, receive }
 }
 
-export function resolveItems(parsedItems, catalogItems, { allowedKinds = null } = {}) {
+export function resolveItems(
+  parsedItems,
+  catalogItems,
+  { allowedKinds = null, combineDuplicates = true } = {},
+) {
   const activeItems = catalogItems.filter(
     (item) => item.active !== false && (!allowedKinds || allowedKinds.has(item.kind)),
   )
@@ -84,6 +104,7 @@ export function resolveItems(parsedItems, catalogItems, { allowedKinds = null } 
 
     const item = matches.values().next().value
     const existing = resolvedById.get(item.id)
+    if (existing && !combineDuplicates) throw new DuplicateItemError(item.name)
     if (existing) existing.quantity += parsedItem.quantity
     else resolvedById.set(item.id, { item, quantity: parsedItem.quantity })
   }

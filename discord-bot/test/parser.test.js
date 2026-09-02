@@ -7,6 +7,8 @@ test('classifies only sale headers as sales messages', () => {
   assert.equal(isSaleMessage('RAR PURCHASE - 1 PIANO\n10 USD'), false)
   assert.equal(isSaleMessage('RAR FARM - 1 CYCLE'), false)
   assert.equal(isSaleMessage('RAR TRADE\nGIVE - 1 PIANO\nRECEIVE - 1 GEMS'), false)
+  assert.equal(isSaleMessage('RAR ADD - 5 HOST STATION'), false)
+  assert.equal(isSaleMessage('RAR STOCK - 17 HOST STATION'), false)
 })
 
 test('parses a Gems sale', () => {

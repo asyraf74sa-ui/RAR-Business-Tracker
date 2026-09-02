@@ -2,10 +2,13 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   AmbiguousItemError,
+  DuplicateItemError,
   InsufficientStockError,
   UnknownItemError,
+  resolveManualAddItems,
   resolvePurchaseItems,
   resolveSaleItems,
+  resolveStockItems,
   resolveTradeItems,
 } from '../src/catalog.js'
 
@@ -108,5 +111,59 @@ test('an unknown item rejects the entire trade before it can be recorded', () =>
       catalog,
     ),
     UnknownItemError,
+  )
+})
+
+test('manual ADD resolves item and Gems bundles as positive increments', () => {
+  const resolved = resolveManualAddItems([
+    { quantity: 5, name: 'HOST STATIONS' },
+    { quantity: 6000, name: 'gems' },
+  ], catalog)
+
+  assert.deepEqual(resolved.map(({ item, quantity }) => [item.name, quantity]), [
+    ['Host Station', 5],
+    ['Gems', 6000],
+  ])
+})
+
+test('an unknown ADD item rejects the entire bundle', () => {
+  assert.throws(
+    () => resolveManualAddItems([
+      { quantity: 5, name: 'Host Station' },
+      { quantity: 1, name: 'Golden Thing' },
+    ], catalog),
+    UnknownItemError,
+  )
+})
+
+test('STOCK resolves exact quantities including zero', () => {
+  const resolved = resolveStockItems([
+    { quantity: 0, name: 'Piano' },
+    { quantity: 46398, name: 'GEMS' },
+  ], catalog)
+
+  assert.deepEqual(resolved.map(({ item, quantity }) => [item.name, quantity]), [
+    ['Piano', 0],
+    ['Gems', 46398],
+  ])
+})
+
+test('an unknown STOCK item rejects the entire bundle', () => {
+  assert.throws(
+    () => resolveStockItems([
+      { quantity: 17, name: 'Host Station' },
+      { quantity: 8, name: 'Golden Thing' },
+    ], catalog),
+    UnknownItemError,
+  )
+})
+
+test('STOCK rejects duplicate canonical items instead of adding their counts', () => {
+  assert.throws(
+    () => resolveStockItems([
+      { quantity: 17, name: 'Host Station' },
+      { quantity: 8, name: 'Host Stations' },
+    ], catalog),
+    DuplicateItemError,
   )
 })
