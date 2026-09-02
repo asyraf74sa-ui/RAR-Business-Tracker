@@ -2,17 +2,20 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildHelpPages, buildItemHelpPages, HELP_TOPICS } from '../src/help.js'
 
-test('/help exposes add and stock topic choices', () => {
+test('/help exposes add, read-only stock overview, and stock reconciliation topic choices', () => {
   const values = HELP_TOPICS.map(({ value }) => value)
   assert.ok(values.includes('add'))
+  assert.ok(values.includes('stockoverview'))
   assert.ok(values.includes('stock'))
 })
 
 test('plain help gives a useful overview of every operation', () => {
   const [page] = buildHelpPages()
-  for (const operation of ['SALES', 'PURCHASE', 'FARM', 'TRADE', 'ADD STOCK', 'STOCKTAKE / RECONCILE']) {
+  for (const operation of ['SALES', 'PURCHASE', 'FARM', 'TRADE', 'ADD STOCK', 'STOCK OVERVIEW', 'STOCKTAKE / RECONCILE']) {
     assert.match(page.description, new RegExp(operation))
   }
+  assert.match(page.description, /`\/stock` \*\*reads\*\* inventory only/i)
+  assert.match(page.description, /`RAR STOCK - \.\.\.` \*\*sets\/reconciles\*\*/i)
 })
 
 test('/help add explains that ADD increases rather than sets stock', () => {
@@ -31,6 +34,15 @@ test('/help stock explains that STOCK sets an exact count rather than adding it'
   assert.match(page.description, /set/i)
   assert.match(page.description, /46,398 GEMS/)
   assert.match(page.description, /does \*\*not\*\* add 17/i)
+})
+
+test('/help stockoverview explains that /stock views live inventory without modifying it', () => {
+  const [page] = buildHelpPages('stockoverview')
+  assert.equal(page.title, 'RAR Bot Help — stockoverview')
+  assert.match(page.description, /Shows live inventory/)
+  assert.match(page.description, /\/stock item:Piano/)
+  assert.match(page.description, /only \*\*reads\*\* inventory/i)
+  assert.match(page.description, /RAR STOCK - <count> <item>/)
 })
 
 test('live item help sorts every exact name and stays within Discord embed limits', () => {

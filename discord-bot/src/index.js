@@ -5,7 +5,6 @@ import {
   GatewayIntentBits,
   MessageFlags,
   Partials,
-  SlashCommandBuilder,
 } from 'discord.js'
 import {
   AcquisitionParseError,
@@ -26,10 +25,12 @@ import {
   resolveStockItems,
   resolveTradeItems,
 } from './catalog.js'
-import { buildHelpPages, HELP_TOPICS } from './help.js'
+import { registerGuildCommands } from './command-registration.js'
+import { buildHelpPages } from './help.js'
 import { isSaleMessage, parseSaleMessage, SaleParseError } from './parser.js'
 import { discordRequestId } from './request-id.js'
 import { buildStockReconciliationResults, formatStockReconciliationLine } from './stock-results.js'
+import { processStockAutocompleteInteraction, processStockInteraction } from './stock-command.js'
 import {
   addStockBundle,
   authenticateSupabase,
@@ -70,8 +71,10 @@ client.once(Events.ClientReady, (readyClient) => {
   console.log(
     `RAR Discord bot ready as ${readyClient.user.tag}. Watching sales ${config.DISCORD_SALES_CHANNEL_ID} and acquisitions ${config.DISCORD_ACQUISITION_CHANNEL_ID}.`,
   )
-  registerGuildHelpCommand(readyClient).catch((error) => {
-    console.error(`Could not register /help: ${safeErrorMessage(error)}`)
+  registerGuildCommands(readyClient, { guildId: config.DISCORD_GUILD_ID }).then(({ guild }) => {
+    console.log(`Guild /help and /stock commands are ready in ${guild.name}.`)
+  }).catch((error) => {
+    console.error(`Could not register guild commands: ${safeErrorMessage(error)}`)
   })
 })
 
@@ -88,10 +91,19 @@ client.on(Events.MessageUpdate, (oldMessage, newMessage) => {
 })
 
 client.on(Events.InteractionCreate, (interaction) => {
-  if (!interaction.isChatInputCommand() || interaction.commandName !== 'help') return
-  processHelpInteraction(interaction).catch((error) => {
-    console.error(`Could not answer /help: ${safeErrorMessage(error)}`)
-  })
+  if (interaction.isAutocomplete() && interaction.commandName === 'stock') {
+    processStockAutocompleteInteraction(interaction, { supabase })
+    return
+  }
+
+  if (!interaction.isChatInputCommand()) return
+  if (interaction.commandName === 'help') {
+    processHelpInteraction(interaction).catch((error) => {
+      console.error(`Could not answer /help: ${safeErrorMessage(error)}`)
+    })
+  } else if (interaction.commandName === 'stock') {
+    processStockInteraction(interaction, { supabase })
+  }
 })
 
 client.on(Events.Error, (error) => {
@@ -349,25 +361,6 @@ async function processStockReconciliation(message, parsed, requestId) {
     '',
     ...(lines.length > 0 ? lines : ['Result breakdown unavailable; check the RAR tracker.']),
   ].join('\n'))
-}
-
-async function registerGuildHelpCommand(readyClient) {
-  const command = new SlashCommandBuilder()
-    .setName('help')
-    .setDescription('Show RAR bot formats and live item names')
-    .addStringOption((option) => option
-      .setName('topic')
-      .setDescription('Choose a help topic')
-      .setRequired(false)
-      .addChoices(...HELP_TOPICS))
-    .toJSON()
-
-  const guild = await readyClient.guilds.fetch(config.DISCORD_GUILD_ID)
-  const commands = await guild.commands.fetch()
-  const existing = commands.find((candidate) => candidate.name === command.name)
-  if (existing) await guild.commands.edit(existing.id, command)
-  else await guild.commands.create(command)
-  console.log(`Guild /help command is ready in ${guild.name}.`)
 }
 
 async function processHelpInteraction(interaction) {

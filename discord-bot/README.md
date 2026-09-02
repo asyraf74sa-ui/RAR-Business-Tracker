@@ -4,7 +4,7 @@ This folder contains the always-on Windows bot for the existing RAR Business Tra
 
 - The **sales channel** accepts only `RAR - ...` sales. Existing sale behavior and duplicate IDs are preserved.
 - The **acquisition channel** accepts purchases, farm claims, in-game trades, manual additions, and exact stocktakes. Sale messages in this channel are ignored.
-- `/help` is registered as a server command and responds privately. Its **Valid item names** topic refreshes the active catalog from Supabase each time.
+- `/help` and `/stock` are registered as server commands and respond privately. Help's **Valid item names** topic and every stock view refresh the active catalog from Supabase.
 
 Every accepted Discord message gets a deterministic request UUID. Retrying a message cannot create a duplicate operation. Editing a recorded message does not rewrite history; the bot tells you to correct it through the RAR tracker.
 
@@ -71,9 +71,27 @@ npm run check
 npm start
 ```
 
-You can also double-click `start-bot.bat`. On startup, the bot registers or updates the server-scoped `/help` command without replacing unrelated commands. If you change `.env` or update the code, restart the bot.
+You can also double-click `start-bot.bat`. On startup, the bot idempotently registers or updates the server-scoped `/help` and `/stock` commands without replacing unrelated commands. If you change `.env` or update the code, restart the bot.
 
 ## Message formats
+
+### Read-only stock views
+
+Run this slash command from any server channel to view all current active inventory, including Gems and zero-stock items:
+
+```text
+/stock
+```
+
+To view one canonical item only:
+
+```text
+/stock item:Piano
+```
+
+The response is private and refreshed from Supabase each time. `/stock` = **VIEW only**; it never changes inventory or creates an inventory event. `RAR STOCK - ...` = **SET/RECONCILE** exact quantities and must be posted in the acquisition channel. This read-only slash command requires no database migration.
+
+### Sales and acquisition messages
 
 Post sales only in the sales channel:
 
@@ -137,7 +155,7 @@ ADD and STOCK bundles are atomic: an invalid item or quantity rejects the entire
 
 Names are matched case-insensitively, with basic singular/plural handling and the `Dino Fossil` alias for `Dinosaur Fossil`. Unknown or ambiguous items reject the whole operation. If any GIVE item has insufficient stock, nothing is changed and the reply shows the item, required quantity, and available quantity.
 
-Run `/help` anywhere in the configured server. Choose its **Valid item names** topic for the current canonical names accepted by the bot; long catalogs are split across multiple private embed messages within Discord limits.
+Run `/help` anywhere in the configured server. Choose its **Stock overview (read only)** topic for `/stock` guidance or **Valid item names** for the current canonical names accepted by the bot; long catalogs and stock overviews are split across multiple private embed messages within Discord limits.
 
 ## Start automatically when Windows logs in
 
@@ -156,7 +174,7 @@ The PC must remain powered on, online, and signed in.
 ## Troubleshooting
 
 - **Missing environment variables:** confirm the file is named `.env`, not `.env.txt`, and includes the guild and both channel IDs.
-- **`/help` is missing:** confirm the bot was invited with `applications.commands`, the guild ID is correct, and the startup console says the command is ready.
+- **`/help` or `/stock` is missing:** confirm the bot was invited with `applications.commands`, the guild ID is correct, and the startup console says both commands are ready.
 - **Messages are ignored:** confirm you used the correct format in the correct channel and enabled Message Content Intent.
 - **Unknown item:** run `/help` with the **Valid item names** topic and copy a canonical active name.
 - **ADD versus STOCK:** use ADD to increase current inventory; use STOCK only to set an exact physical count.
