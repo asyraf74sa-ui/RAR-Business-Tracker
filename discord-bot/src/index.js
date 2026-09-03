@@ -423,8 +423,11 @@ function userFacingError(error, operation) {
   const insufficient = message.match(/Insufficient stock for\s+([^\n.]+)/i)
   if (insufficient) return `Insufficient stock for ${insufficient[1].trim()}`
   if (/Invalid or inactive sales platform/i.test(message)) return 'Unknown or inactive platform.'
+  if (/issued in the future|system clock|clock skew/i.test(message)) {
+    return 'Supabase rejected the session because of clock skew. Synchronize the bot host clock and try again.'
+  }
   if (/Authentication required|JWT|session/i.test(message)) {
-    return 'Supabase authentication expired. Restart the bot and check its console.'
+    return 'Supabase authentication could not be restored automatically. Check the bot console.'
   }
   if (/fetch|network|timeout|econn|socket/i.test(message)) {
     return `Network error. The ${operation || 'record'} was not confirmed; check the bot console and retry.`
