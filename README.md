@@ -5,7 +5,8 @@ A polished, mobile-first business dashboard for **Run A Restaurant** traders. It
 ## Included
 
 - Email/password signup, sign-in, persistent sessions, and sign-out with Supabase Auth
-- Dashboard totals kept separate for USD, MYR, PHP, and IDR
+- Current-month dashboard reporting in `Asia/Kuala_Lumpur`, with authoritative USD, MYR, PHP, and IDR balances
+- Combined live USD-equivalent Net Wallet Credit, without changing stored transaction currencies
 - Multi-item bundle sales through `rar_record_sale`
 - Weekly physical-stock and Gem-wallet reconciliation through `rar_reconcile_stock`
 - Item-to-Gem and Gem-to-item transactions with verified inventory results
@@ -44,6 +45,10 @@ The app calls the existing RPC functions:
 - `rar_buy_item_with_gems`
 - `rar_sync_farm_due`
 
+## Dashboard FX
+
+The current-month wallet hero requests numeric USD-base MYR, PHP, and IDR rates from the keyless [Frankfurter](https://frankfurter.dev/) API through `GET /api/fx`. Vercel caches successful provider responses for one hour, while the browser keeps its last successful response and labels it as fallback data if a later refresh fails. Original-currency totals remain available even when conversion is unavailable.
+
 ## Deploy to Vercel
 
-Import this repository into Vercel. The included `vercel.json` identifies Vite and provides the single-page-app rewrite; no server or secret environment variables are required.
+Import this repository into Vercel. The included `vercel.json` identifies Vite and provides the single-page-app rewrite. The keyless FX adapter does not require a secret environment variable.

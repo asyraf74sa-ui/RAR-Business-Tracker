@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "npm run build"
+    "test": "node --test test/dashboard-finance.test.js test/fx-client.test.js test/fx-endpoint.test.js",
+    "check": "npm run test && npm run build"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.112.4",

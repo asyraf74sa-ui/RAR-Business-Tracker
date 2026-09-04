@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowRight,
   Boxes,
@@ -12,39 +12,95 @@ import {
   ReceiptText,
   Sprout,
   TrendingUp,
-  WalletCards,
 } from 'lucide-react'
 import { Button, EmptyState, SectionHeading, StatusBadge } from '../components/ui.jsx'
 import { CURRENCIES } from '../lib/constants.js'
-import { formatDateTime, formatMoney, formatQuantity, groupCurrencyTotals, toNumber } from '../lib/format.js'
+import {
+  BUSINESS_TIME_ZONE,
+  convertCurrencyTotalsToUsd,
+  currentMonthFinancials,
+  malaysiaHour,
+  malaysiaMonthPeriod,
+} from '../lib/dashboard-finance.js'
+import { formatDateTime, formatMoney, formatQuantity, toNumber } from '../lib/format.js'
+import { fxClient } from '../lib/fx-client.js'
 
 const CURRENCY_META = {
-  USD: { label: 'Global wallet', symbol: '$' },
-  MYR: { label: 'Malaysia wallet', symbol: 'RM' },
-  PHP: { label: 'Philippines wallet', symbol: '₱' },
-  IDR: { label: 'Indonesia wallet', symbol: 'Rp' },
+  USD: { label: 'US Dollar', symbol: '$' },
+  MYR: { label: 'Malaysian Ringgit', symbol: 'RM' },
+  PHP: { label: 'Philippine Peso', symbol: '₱' },
+  IDR: { label: 'Indonesian Rupiah', symbol: 'Rp' },
+}
+
+function formatOriginalBalance(value, currency) {
+  const fractionDigits = currency === 'IDR' ? 0 : 2
+  const amount = new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(toNumber(value))
+  return `${CURRENCY_META[currency].symbol}${amount}`
+}
+
+function updatedAgo(value, now) {
+  const timestamp = new Date(value).getTime()
+  if (!Number.isFinite(timestamp)) return 'time unavailable'
+
+  const elapsed = Math.max(0, now.getTime() - timestamp)
+  const minutes = Math.floor(elapsed / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+
+  return new Intl.DateTimeFormat(undefined, {
+    timeZone: BUSINESS_TIME_ZONE,
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(timestamp))
 }
 
 export default function Dashboard({ data, onNavigate }) {
   const { items, sales, saleItems, inventoryEvents, farmConfig } = data
   const [selectedCurrency, setSelectedCurrency] = useState('USD')
+  const [dashboardNow, setDashboardNow] = useState(() => new Date())
+  const [fxState, setFxState] = useState({ status: 'loading', data: null })
+
+  useEffect(() => {
+    const now = Date.now()
+    const nextMonth = malaysiaMonthPeriod(new Date(now)).endExclusive.getTime()
+    const delay = Math.min(Math.max(nextMonth - now + 250, 1_000), 2_147_000_000)
+    const timer = window.setTimeout(() => setDashboardNow(new Date()), delay)
+    return () => window.clearTimeout(timer)
+  }, [dashboardNow])
+
+  useEffect(() => {
+    let active = true
+    fxClient.getRates()
+      .then((result) => {
+        if (active) setFxState({ status: 'ready', data: result })
+      })
+      .catch(() => {
+        if (active) setFxState({ status: 'unavailable', data: null })
+      })
+    return () => { active = false }
+  }, [])
+
   const gemItem = items.find((item) => item.kind === 'currency' && item.name.toLowerCase() === 'gems')
   const physicalItems = items.filter((item) => item.kind === 'item')
   const activeFarmItems = physicalItems.filter((item) => item.is_farm_item && item.active)
   const itemMap = useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
-
-  const netTotals = useMemo(() => groupCurrencyTotals(sales, (sale) => sale.net_credit), [sales])
-  const feeTotals = useMemo(() => groupCurrencyTotals(sales, (sale) => sale.platform_fee), [sales])
-  const grossTotals = useMemo(() => groupCurrencyTotals(sales, (sale) => toNumber(sale.net_credit) + toNumber(sale.platform_fee)), [sales])
-  const saleCountByCurrency = useMemo(() => {
-    const counts = Object.fromEntries(CURRENCIES.map((currency) => [currency, 0]))
-    sales.forEach((sale) => {
-      const currency = String(sale.currency).toUpperCase()
-      if (currency in counts) counts[currency] += 1
-    })
-    return counts
-  }, [sales])
-  const selectedSales = useMemo(() => sales.filter((sale) => String(sale.currency).toUpperCase() === selectedCurrency), [sales, selectedCurrency])
+  const monthFinancials = useMemo(() => currentMonthFinancials(sales, dashboardNow), [sales, dashboardNow])
+  const { period, sales: currentMonthSales, netTotals, feeTotals, grossTotals, saleCountByCurrency } = monthFinancials
+  const combinedUsd = useMemo(
+    () => convertCurrencyTotalsToUsd(netTotals, fxState.data?.rates),
+    [netTotals, fxState.data],
+  )
+  const selectedSales = useMemo(
+    () => currentMonthSales.filter((sale) => String(sale.currency).toUpperCase() === selectedCurrency),
+    [currentMonthSales, selectedCurrency],
+  )
 
   const platformPerformance = useMemo(() => {
     const grouped = new Map()
@@ -65,14 +121,17 @@ export default function Dashboard({ data, onNavigate }) {
   }, [selectedSales, selectedCurrency, netTotals])
 
   const bestSellers = useMemo(() => {
+    const currentSaleIds = new Set(currentMonthSales.map((sale) => sale.id))
     const grouped = new Map()
-    saleItems.forEach((line) => grouped.set(line.item_id, (grouped.get(line.item_id) || 0) + toNumber(line.quantity)))
+    saleItems
+      .filter((line) => currentSaleIds.has(line.sale_id))
+      .forEach((line) => grouped.set(line.item_id, (grouped.get(line.item_id) || 0) + toNumber(line.quantity)))
     return [...grouped.entries()]
       .map(([id, quantity]) => ({ item: itemMap.get(id), quantity }))
       .filter(({ item }) => item?.kind === 'item')
       .sort((a, b) => b.quantity - a.quantity)
       .slice(0, 5)
-  }, [saleItems, itemMap])
+  }, [saleItems, currentMonthSales, itemMap])
 
   const recentSales = sales.slice(0, 5).map((sale) => ({
     ...sale,
@@ -95,9 +154,16 @@ export default function Dashboard({ data, onNavigate }) {
   const lastClaim = farmConfig?.last_claim_at ? new Date(farmConfig.last_claim_at) : null
   const nextCycle = lastClaim && cycleDays > 0 ? new Date(lastClaim.getTime() + cycleDays * 86_400_000) : null
   const inventoryUnits = physicalItems.reduce((sum, item) => sum + toNumber(item.stock), 0)
-  const walletStack = [...CURRENCIES.filter((currency) => currency !== selectedCurrency), selectedCurrency]
-  const hour = new Date().getHours()
+  const hour = malaysiaHour(dashboardNow)
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
+  const showApproximate = combinedUsd.approximate && combinedUsd.total != null
+  const fxStatus = !combinedUsd.approximate
+    ? 'USD only · no conversion needed'
+    : combinedUsd.total == null
+      ? fxState.status === 'loading' ? 'Updating current FX…' : 'USD conversion temporarily unavailable'
+      : fxState.data?.fallback
+        ? `Using last FX rate · updated ${updatedAgo(fxState.data.updatedAt, dashboardNow)}`
+        : `Live FX · updated ${updatedAgo(fxState.data.updatedAt, dashboardNow)}`
 
   return (
     <div className="page-stack dashboard-page">
@@ -107,49 +173,60 @@ export default function Dashboard({ data, onNavigate }) {
       </header>
 
       <div className="wallet-overview">
-        <div className="wallet-stack" aria-label="RAR currency wallets">
-          {walletStack.map((currency, index) => {
-            const active = currency === selectedCurrency
-            return (
-              <button
-                type="button"
-                aria-pressed={active}
-                aria-label={`${currency} wallet, ${formatMoney(netTotals[currency], currency)} net received`}
-                className={`wallet-pass wallet-pass--${currency.toLowerCase()} ${active ? 'is-active' : ''}`}
-                style={{ '--stack-index': index }}
-                onClick={() => setSelectedCurrency(currency)}
-                key={currency}
-              >
-                <span className="wallet-pass__ambient" aria-hidden="true" />
-                <span className="wallet-pass__top">
-                  <span className="wallet-pass__brand"><i>R</i><span><strong>RAR</strong><small>Run a Restaurant</small></span></span>
-                  <span className="wallet-pass__currency"><strong>{currency}</strong><small>{CURRENCY_META[currency].label}</small></span>
-                </span>
-                <span className="wallet-pass__body"><small>Net sales received</small><strong>{formatMoney(netTotals[currency], currency)}</strong></span>
-                <span className="wallet-pass__footer">
-                  <span><small>After platform fees</small><strong>{CURRENCY_META[currency].symbol} wallet</strong></span>
-                  <span><small>Activity</small><strong>{saleCountByCurrency[currency]} {saleCountByCurrency[currency] === 1 ? 'transaction' : 'transactions'}</strong></span>
-                  <WalletCards size={22} aria-hidden="true" />
-                </span>
-              </button>
-            )
-          })}
-        </div>
+        <section className="wallet-hero" aria-label={`${period.label} net wallet credit in US dollars`}>
+          <span className="wallet-hero__ambient" aria-hidden="true" />
+          <header className="wallet-hero__top">
+            <span className="wallet-hero__brand"><i>R</i><span><strong>RAR</strong><small>Business Wallet</small></span></span>
+            <span className="wallet-hero__base"><strong>USD base</strong><small>{fxState.data?.provider || 'Live reporting'}</small></span>
+          </header>
+
+          <div className="wallet-hero__body">
+            <p className="wallet-hero__month">{period.label}<span>Malaysia time</span></p>
+            <small>Net Wallet Credit</small>
+            <div className={`wallet-hero__amount ${combinedUsd.total == null ? 'is-unavailable' : ''}`}>
+              {showApproximate && <i aria-label="approximately">≈</i>}
+              <strong>{combinedUsd.total == null ? '—' : formatMoney(combinedUsd.total, 'USD')}</strong>
+            </div>
+            <p>Current month · USD equivalent</p>
+            <div className={`wallet-hero__fx ${fxState.data?.fallback ? 'is-fallback' : ''} ${combinedUsd.total == null ? 'is-unavailable' : ''}`} aria-live="polite">
+              <span aria-hidden="true" />
+              <strong>{fxStatus}</strong>
+            </div>
+          </div>
+
+          <div className="wallet-balances" aria-label="Current-month balances in their original currencies">
+            <div className="wallet-balances__heading"><span>Recorded balances</span><small>Original currency</small></div>
+            <div className="wallet-balances__grid">
+              {CURRENCIES.map((currency) => (
+                <button
+                  type="button"
+                  aria-pressed={selectedCurrency === currency}
+                  className={selectedCurrency === currency ? 'is-active' : ''}
+                  onClick={() => setSelectedCurrency(currency)}
+                  key={currency}
+                >
+                  <span><strong>{currency}</strong><small>{saleCountByCurrency[currency]} {saleCountByCurrency[currency] === 1 ? 'sale' : 'sales'}</small></span>
+                  <b title={`${CURRENCY_META[currency].label} total`}>{formatOriginalBalance(netTotals[currency], currency)}</b>
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
 
         <aside className="wallet-insights" aria-label={`${selectedCurrency} wallet at a glance`}>
-          <div className="wallet-insights__heading"><span>At a glance</span><strong>{selectedCurrency}</strong></div>
-          <article className="support-metric support-metric--blue"><span className="support-metric__icon"><Percent size={20} /></span><div><span>Platform fees</span><strong>{formatMoney(feeTotals[selectedCurrency], selectedCurrency)}</strong><small>{selectedCurrency} only</small></div></article>
+          <div className="wallet-insights__heading"><span>At a glance</span><strong>{selectedCurrency} · {period.label}</strong></div>
+          <article className="support-metric support-metric--blue"><span className="support-metric__icon"><Percent size={20} /></span><div><span>Platform fees</span><strong>{formatMoney(feeTotals[selectedCurrency], selectedCurrency)}</strong><small>Current month · {selectedCurrency}</small></div></article>
           <article className="support-metric support-metric--green"><span className="support-metric__icon"><TrendingUp size={20} /></span><div><span>Gross sales</span><strong>{formatMoney(grossTotals[selectedCurrency], selectedCurrency)}</strong><small>Net received + fees</small></div></article>
-          <article className="support-metric support-metric--purple"><span className="support-metric__icon"><Gem size={20} /></span><div><span>Gem balance</span><strong>{formatQuantity(gemItem?.stock || 0)}</strong><small>Alternative business asset</small></div></article>
-          <article className="support-metric support-metric--gold"><span className="support-metric__icon"><PackageOpen size={20} /></span><div><span>Inventory units</span><strong>{formatQuantity(inventoryUnits)}</strong><small>{physicalItems.filter((item) => item.active).length} active item types</small></div></article>
+          <article className="support-metric support-metric--purple"><span className="support-metric__icon"><Gem size={20} /></span><div><span>Gem balance</span><strong>{formatQuantity(gemItem?.stock || 0)}</strong><small>Live business asset</small></div></article>
+          <article className="support-metric support-metric--gold"><span className="support-metric__icon"><PackageOpen size={20} /></span><div><span>Inventory units</span><strong>{formatQuantity(inventoryUnits)}</strong><small>Live · {physicalItems.filter((item) => item.active).length} active item types</small></div></article>
         </aside>
       </div>
 
       <section className="dashboard-surface dashboard-surface--performance">
         <section className="platform-performance">
-          <SectionHeading title="Platform performance" description={`Net sales, fees, and share of the ${selectedCurrency} wallet.`} />
+          <SectionHeading title="Platform performance" description={`Current-month net sales, fees, and share of the ${selectedCurrency} wallet.`} />
           {platformPerformance.length === 0 ? (
-            <EmptyState title={`No ${selectedCurrency} platform sales yet`} description="Choose another currency or record your first sale." action={<Button variant="secondary" size="small" onClick={() => onNavigate('sale')}>Record a sale</Button>} />
+            <EmptyState title={`No ${selectedCurrency} sales this month`} description="Choose another currency or record a sale for this month." action={<Button variant="secondary" size="small" onClick={() => onNavigate('sale')}>Record a sale</Button>} />
           ) : (
             <div className="platform-performance__list">
               {platformPerformance.map((entry) => (
@@ -164,8 +241,8 @@ export default function Dashboard({ data, onNavigate }) {
         </section>
 
         <section className="top-items">
-          <SectionHeading title="Top sold items" description="Ranked by units across all recorded sales." />
-          {bestSellers.length === 0 ? <EmptyState title="No best seller yet" description="Bundle items are ranked automatically after your first sale." icon={Boxes} /> : (
+          <SectionHeading title="Top sold items" description={`Ranked by units sold in ${period.label}.`} />
+          {bestSellers.length === 0 ? <EmptyState title="No best seller this month" description="Items are ranked automatically after this month’s first sale." icon={Boxes} /> : (
             <ol className="rank-list rank-list--visual">
               {bestSellers.map(({ item, quantity }, index) => (
                 <li key={item.id}><span className="rank-list__number">{String(index + 1).padStart(2, '0')}</span><div><span><strong title={item.name}>{item.name}</strong><b>{formatQuantity(quantity)} sold</b></span></div></li>
