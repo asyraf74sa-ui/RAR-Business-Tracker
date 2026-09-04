@@ -13,6 +13,8 @@ export const DEFAULT_PLATFORMS = [
   { name: 'PlayerAuctions', default_fee_pct: null },
   { name: 'G2G', default_fee_pct: null },
   { name: 'Itemku', default_fee_pct: null },
+  { name: 'PayPal', default_fee_pct: null },
+  { name: 'TNG', default_fee_pct: null },
   { name: 'Direct', default_fee_pct: null },
 ]
 

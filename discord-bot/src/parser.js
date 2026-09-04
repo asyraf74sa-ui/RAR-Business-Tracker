@@ -1,14 +1,4 @@
-const PLATFORM_NAMES = [
-  'Eldorado',
-  'ZeusX',
-  'Gameflip',
-  'PlayerAuctions',
-  'G2G',
-  'Itemku',
-  'Direct',
-]
-
-const PLATFORM_BY_KEY = new Map(PLATFORM_NAMES.map((name) => [platformKey(name), name]))
+import { canonicalPlatformName } from './platforms.js'
 
 export class SaleParseError extends Error {
   constructor(message) {
@@ -18,7 +8,12 @@ export class SaleParseError extends Error {
 }
 
 export function isSaleMessage(content) {
-  return /^\s*RAR\s*(?:-|\u2013|\u2014|:)/i.test(String(content || ''))
+  return detectSaleGame(content) !== null
+}
+
+export function detectSaleGame(content) {
+  const match = String(content || '').match(/^\s*(RAR|MR)\s*(?:-|\u2013|\u2014|:)/i)
+  return match ? match[1].toUpperCase() : null
 }
 
 export function parseSaleMessage(content) {
@@ -29,17 +24,22 @@ export function parseSaleMessage(content) {
     .filter(Boolean)
 
   if (lines.length < 4) {
-    throw new SaleParseError('Expected RAR items, net amount, fee amount, and platform.')
+    throw new SaleParseError('Expected RAR or MR items, net amount, fee amount, and platform.')
   }
 
-  const header = lines[0].match(/^RAR\s*(?:-|\u2013|\u2014|:)\s*(.*)$/i)
+  const header = lines[0].match(/^(RAR|MR)\s*(?:-|\u2013|\u2014|:)\s*(.*)$/i)
   if (!header) {
-    throw new SaleParseError('The first line must start with "RAR -".')
+    throw new SaleParseError('The first line must start with "RAR -" or "MR -".')
   }
+
+  const game = header[1].toUpperCase()
 
   const moneyLines = []
   for (let index = 1; index < lines.length && moneyLines.length < 2; index += 1) {
-    const parsed = parseMoneyLine(lines[index], { allowBare: moneyLines.length === 1 })
+    const parsed = parseMoneyLine(lines[index], {
+      allowBare: moneyLines.length === 1,
+      fallbackCurrency: moneyLines[0]?.currency,
+    })
     if (parsed) moneyLines.push({ ...parsed, index })
   }
 
@@ -52,21 +52,26 @@ export function parseSaleMessage(content) {
     throw new SaleParseError('The first money amount must be the net wallet credit, not TAX or FEE.')
   }
 
-  const itemText = [header[1], ...lines.slice(1, netLine.index)].filter(Boolean).join(' ')
+  if (netLine.currency !== feeLine.currency) {
+    throw new SaleParseError('Net credit and platform fee must use the same currency.')
+  }
+
+  const itemText = [header[2], ...lines.slice(1, netLine.index)].filter(Boolean).join(' ')
   const items = parseItemList(itemText)
 
   const platformText = lines.slice(feeLine.index + 1).join(' ')
-  const platform = PLATFORM_BY_KEY.get(platformKey(platformText))
+  const platform = canonicalPlatformName(platformText)
   if (!platform) {
     throw new SaleParseError(`Unknown platform: ${platformText || '(missing)'}`)
   }
 
   return {
+    game,
     items,
     netCredit: netLine.amount,
     platformFee: feeLine.amount,
     gross: netLine.amount + feeLine.amount,
-    currency: 'USD',
+    currency: netLine.currency,
     platform,
   }
 }
@@ -93,16 +98,26 @@ export function parseItemList(itemText, { allowZero = false } = {}) {
   })
 }
 
-function parseMoneyLine(line, { allowBare }) {
+function parseMoneyLine(line, { allowBare, fallbackCurrency = null }) {
   const raw = String(line || '').trim()
   if (!raw) return null
 
-  const hasCurrency = /\$|\b(?:USD|US)\b/i.test(raw)
+  const currencies = new Set()
+  if (/\$/.test(raw)) currencies.add('USD')
+  if (/^RM\s*/i.test(raw)) currencies.add('MYR')
+  for (const match of raw.matchAll(/\b(USD|US|MYR|PHP|IDR|RM)\b/gi)) {
+    const token = match[1].toUpperCase()
+    currencies.add(token === 'US' ? 'USD' : token === 'RM' ? 'MYR' : token)
+  }
+  if (currencies.size > 1) throw new SaleParseError('A money line contains conflicting currencies.')
+
+  const hasCurrency = currencies.size === 1
   const labelMatch = raw.match(/\b(TAX|FEE)\b/i)
   if (!hasCurrency && !labelMatch && !allowBare) return null
 
   const numericText = raw
-    .replace(/\b(?:USD|US)\b/gi, ' ')
+    .replace(/^RM\s*/i, ' ')
+    .replace(/\b(?:USD|US|MYR|PHP|IDR|RM)\b/gi, ' ')
     .replace(/\b(?:TAX|FEE)\b/gi, ' ')
     .replaceAll('$', ' ')
     .replace(/\s+/g, '')
@@ -115,6 +130,7 @@ function parseMoneyLine(line, { allowBare }) {
   return {
     amount,
     label: labelMatch ? labelMatch[1].toUpperCase() : null,
+    currency: hasCurrency ? [...currencies][0] : fallbackCurrency,
   }
 }
 
@@ -149,8 +165,4 @@ function previousNonSpace(value) {
     if (!/\s/.test(value[index])) return value[index]
   }
   return null
-}
-
-function platformKey(value) {
-  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '')
 }

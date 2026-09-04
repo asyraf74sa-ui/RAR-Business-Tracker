@@ -54,6 +54,33 @@ export async function loadCatalog(supabase) {
   })
 }
 
+export async function loadMRCatalog(supabase) {
+  return withSupabaseAuthRetry(supabase, 'MR catalog load', async () => {
+    const [itemResult, familyResult, platformResult] = await Promise.all([
+      supabase
+        .from('mr_items')
+        .select('id,name,category,unit,current_quantity,is_archived,aliases')
+        .eq('is_archived', false)
+        .order('name'),
+      supabase
+        .from('mr_set_families')
+        .select('id,name,aliases,table_item_id,chair_item_id,chairs_per_set,active')
+        .eq('active', true)
+        .order('name'),
+      supabase.from('rar_platforms').select('id,name,active').eq('active', true).order('name'),
+    ])
+
+    if (itemResult.error) throw databaseError('Could not load MR items', itemResult.error)
+    if (familyResult.error) throw databaseError('Could not load MR set families', familyResult.error)
+    if (platformResult.error) throw databaseError('Could not load sales platforms', platformResult.error)
+    return {
+      items: itemResult.data || [],
+      setFamilies: familyResult.data || [],
+      platforms: platformResult.data || [],
+    }
+  })
+}
+
 export async function loadActiveItems(supabase) {
   return withSupabaseAuthRetry(supabase, 'active RAR item load', async () => {
     const { data, error } = await supabase
@@ -67,26 +94,54 @@ export async function loadActiveItems(supabase) {
   })
 }
 
-export async function findRecordedSale(supabase, requestId) {
-  return withSupabaseAuthRetry(supabase, 'existing RAR sale check', async () => {
+export async function loadMRActiveItems(supabase) {
+  return withSupabaseAuthRetry(supabase, 'active MR item load', async () => {
     const { data, error } = await supabase
-      .from('rar_sales')
-      .select('id')
-      .eq('request_id', requestId)
-      .maybeSingle()
-
-    if (error) throw databaseError('Could not check for an existing Discord sale', error)
-    return data?.id || null
+      .from('mr_items')
+      .select('id,name,category,unit,current_quantity,is_archived,aliases')
+      .eq('is_archived', false)
+      .order('name')
+    if (error) throw databaseError('Could not refresh active MR items', error)
+    return (data || []).map((item) => ({
+      ...item,
+      active: !item.is_archived,
+      kind: 'item',
+      stock: item.current_quantity,
+    }))
   })
 }
 
-export async function findRecordedInventoryOperation(supabase, requestIds) {
+export async function loadMRSetStockSummaries(supabase) {
+  return withSupabaseAuthRetry(supabase, 'MR set stock summary load', async () => {
+    const { data, error } = await supabase
+      .from('mr_set_stock_summary')
+      .select('family_id,name,tables,chairs,chairs_per_set,completed_sets,excess_tables,excess_chairs')
+      .order('name')
+    if (error) throw databaseError('Could not load MR set stock summaries', error)
+    return data || []
+  })
+}
+
+export async function findRecordedSale(supabase, requestId, game = 'RAR') {
+  return withSupabaseAuthRetry(supabase, `existing ${game || 'Discord'} sale check`, async () => {
+    const tables = game === null ? ['rar_sales', 'mr_sales'] : [game === 'MR' ? 'mr_sales' : 'rar_sales']
+    for (const table of tables) {
+      const { data, error } = await supabase.from(table).select('id').eq('request_id', requestId).maybeSingle()
+      if (error) throw databaseError('Could not check for an existing Discord sale', error)
+      if (data?.id) return data.id
+    }
+    return null
+  })
+}
+
+export async function findRecordedInventoryOperation(supabase, requestIds, game = 'RAR') {
   const ids = [...new Set(requestIds)].filter(Boolean)
   if (ids.length === 0) return null
 
-  return withSupabaseAuthRetry(supabase, 'existing RAR inventory operation check', async () => {
+  return withSupabaseAuthRetry(supabase, `existing ${game} inventory operation check`, async () => {
+    const table = game === 'MR' ? 'mr_inventory_events' : 'rar_inventory_events'
     const { data, error } = await supabase
-      .from('rar_inventory_events')
+      .from(table)
       .select('request_id,event_type')
       .in('request_id', ids)
       .limit(1)
@@ -96,11 +151,13 @@ export async function findRecordedInventoryOperation(supabase, requestIds) {
   })
 }
 
-export async function loadInventoryEvents(supabase, requestId) {
-  return withSupabaseAuthRetry(supabase, 'RAR inventory result load', async () => {
+export async function loadInventoryEvents(supabase, requestId, game = 'RAR') {
+  return withSupabaseAuthRetry(supabase, `${game} inventory result load`, async () => {
+    const table = game === 'MR' ? 'mr_inventory_events' : 'rar_inventory_events'
+    const relation = game === 'MR' ? 'mr_items' : 'rar_items'
     const { data, error } = await supabase
-      .from('rar_inventory_events')
-      .select('item_id,event_type,quantity_delta,balance_after,item:rar_items(name)')
+      .from(table)
+      .select(`item_id,event_type,quantity_delta,balance_after,item:${relation}(name)`)
       .eq('request_id', requestId)
       .order('item_id')
 
@@ -109,19 +166,20 @@ export async function loadInventoryEvents(supabase, requestId) {
   })
 }
 
-export async function loadMonthlyFinancialRecords(supabase, { startInclusive, endExclusive }) {
-  return withSupabaseAuthRetry(supabase, 'RAR monthly report load', async () => {
+export async function loadMonthlyFinancialRecords(supabase, { startInclusive, endExclusive }, game = 'RAR') {
+  return withSupabaseAuthRetry(supabase, `${game} monthly report load`, async () => {
+    const prefix = game === 'MR' ? 'mr' : 'rar'
     const [sales, inventoryEvents] = await Promise.all([
       loadAllFinancialRows(() => supabase
-        .from('rar_sales')
-        .select('id,sold_at,net_credit,platform_fee,currency,inventory_applied,classification')
+        .from(`${prefix}_sales`)
+        .select('id,sold_at,platform,net_credit,platform_fee,currency,inventory_applied,classification')
         .in('currency', FINANCIAL_CURRENCIES)
         .gte('sold_at', startInclusive)
         .lt('sold_at', endExclusive)
         .order('sold_at')
-        .order('id'), 'RAR monthly sales'),
+        .order('id'), `${game} monthly sales`),
       loadAllFinancialRows(() => supabase
-        .from('rar_inventory_events')
+        .from(`${prefix}_inventory_events`)
         .select('id,event_at,event_type,cash_amount,cash_currency,request_id')
         .eq('event_type', 'supplier_purchase')
         .not('cash_amount', 'is', null)
@@ -129,30 +187,31 @@ export async function loadMonthlyFinancialRecords(supabase, { startInclusive, en
         .gte('event_at', startInclusive)
         .lt('event_at', endExclusive)
         .order('event_at')
-        .order('id'), 'RAR monthly purchases'),
+        .order('id'), `${game} monthly purchases`),
     ])
 
     return { sales, inventoryEvents }
   })
 }
 
-export async function loadFinancialHistoryRecords(supabase) {
-  return withSupabaseAuthRetry(supabase, 'RAR monthly history load', async () => {
+export async function loadFinancialHistoryRecords(supabase, game = 'RAR') {
+  return withSupabaseAuthRetry(supabase, `${game} monthly history load`, async () => {
+    const prefix = game === 'MR' ? 'mr' : 'rar'
     const [sales, inventoryEvents] = await Promise.all([
       loadAllFinancialRows(() => supabase
-        .from('rar_sales')
-        .select('id,sold_at,net_credit,platform_fee,currency,inventory_applied,classification')
+        .from(`${prefix}_sales`)
+        .select('id,sold_at,platform,net_credit,platform_fee,currency,inventory_applied,classification')
         .in('currency', FINANCIAL_CURRENCIES)
         .order('sold_at')
-        .order('id'), 'RAR sales history'),
+        .order('id'), `${game} sales history`),
       loadAllFinancialRows(() => supabase
-        .from('rar_inventory_events')
+        .from(`${prefix}_inventory_events`)
         .select('id,event_at,event_type,cash_amount,cash_currency,request_id')
         .eq('event_type', 'supplier_purchase')
         .not('cash_amount', 'is', null)
         .in('cash_currency', FINANCIAL_CURRENCIES)
         .order('event_at')
-        .order('id'), 'RAR purchase history'),
+        .order('id'), `${game} purchase history`),
     ])
 
     return { sales, inventoryEvents }
@@ -183,8 +242,28 @@ export function reconcileStockBundle(supabase, payload, options) {
   return callRpcWithRetry(supabase, 'rar_reconcile_stock_batch', payload, options)
 }
 
+export function recordMRSale(supabase, payload, options) {
+  return callRpcWithRetry(supabase, 'mr_record_sale', payload, options)
+}
+
+export function recordMRPurchaseBundle(supabase, payload, options) {
+  return callRpcWithRetry(supabase, 'mr_record_purchase_bundle', payload, options)
+}
+
+export function recordMRTrade(supabase, payload, options) {
+  return callRpcWithRetry(supabase, 'mr_record_trade', payload, options)
+}
+
+export function addMRStockBundle(supabase, payload, options) {
+  return callRpcWithRetry(supabase, 'mr_add_stock_bundle', payload, options)
+}
+
+export function reconcileMRStockBundle(supabase, payload, options) {
+  return callRpcWithRetry(supabase, 'mr_reconcile_stock_batch', payload, options)
+}
+
 export async function callRpcWithRetry(supabase, functionName, payload, { attempts = 3 } = {}) {
-  return withSupabaseAuthRetry(supabase, `RAR RPC ${functionName}`, () => (
+  return withSupabaseAuthRetry(supabase, `authenticated RPC ${functionName}`, () => (
     callRpcWithTransientRetry(supabase, functionName, payload, { attempts })
   ))
 }
@@ -359,7 +438,7 @@ function isRecoverableAuthError(error) {
   if (/authentication required|not authenticated|no active session|refresh[_ ]token.*(?:not found|revoked|reuse)/i.test(text)) return true
   if (/\bPGRST30[13]\b/i.test(text)) return true
 
-  return /permission denied for (?:table|function|sequence|schema)\s+(?:public\.)?rar_[a-z0-9_]+/i.test(text)
+  return /permission denied for (?:table|function|sequence|schema)\s+(?:public\.)?(?:rar|mr)_[a-z0-9_]+/i.test(text)
 }
 
 function isJwtIssuedInFuture(error) {

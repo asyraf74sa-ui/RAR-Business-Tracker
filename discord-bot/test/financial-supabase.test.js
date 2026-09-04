@@ -43,6 +43,17 @@ test('financial history loading remains paginated and does not leak selected-mon
   assert.equal(calls.filter(([method]) => method === 'range').length, 2)
 })
 
+test('MR monthly loading selects only MR sales and inventory events', async () => {
+  const { supabase, calls } = fakeSupabase({ mr_sales: [], mr_inventory_events: [] })
+  await loadMonthlyFinancialRecords(supabase, {
+    startInclusive: '2026-08-31T16:00:00.000Z',
+    endExclusive: '2026-09-30T16:00:00.000Z',
+  }, 'MR')
+  const tables = calls.filter(([method]) => method === 'from').map((call) => call[1])
+  assert.deepEqual(tables.sort(), ['mr_inventory_events', 'mr_sales'])
+  assert.ok(tables.every((table) => !table.startsWith('rar_')))
+})
+
 function fakeSupabase(rowsByTable) {
   const calls = []
   const supabase = {

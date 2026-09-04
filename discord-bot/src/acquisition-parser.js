@@ -9,30 +9,39 @@ export class AcquisitionParseError extends Error {
 
 export function detectAcquisitionOperation(content) {
   const value = String(content || '').trim()
-  if (/^RAR\s+PURCHASE\b/i.test(value)) return 'purchase'
-  if (/^RAR\s+FARM\b/i.test(value)) return 'farm'
-  if (/^RAR\s+TRADE\b/i.test(value)) return 'trade'
-  if (/^RAR\s+ADD\b/i.test(value)) return 'manual_add'
-  if (/^RAR\s+STOCK\b/i.test(value)) return 'stock_reconcile'
+  if (/^(?:RAR|MR)\s+PURCHASE\b/i.test(value)) return 'purchase'
+  if (/^(?:RAR|MR)\s+FARM\b/i.test(value)) return 'farm'
+  if (/^(?:RAR|MR)\s+TRADE\b/i.test(value)) return 'trade'
+  if (/^(?:RAR|MR)\s+ADD\b/i.test(value)) return 'manual_add'
+  if (/^(?:RAR|MR)\s+STOCK\b/i.test(value)) return 'stock_reconcile'
   return null
 }
 
+export function detectAcquisitionGame(content) {
+  const match = String(content || '').trim().match(/^(RAR|MR)\s+(?:PURCHASE|FARM|TRADE|ADD|STOCK)\b/i)
+  return match ? match[1].toUpperCase() : null
+}
+
 export function parseAcquisitionMessage(content) {
+  const game = detectAcquisitionGame(content)
   const operation = detectAcquisitionOperation(content)
-  if (operation === 'purchase') return parsePurchaseMessage(content)
-  if (operation === 'farm') return parseFarmMessage(content)
-  if (operation === 'trade') return parseTradeMessage(content)
-  if (operation === 'manual_add') return parseAddMessage(content)
-  if (operation === 'stock_reconcile') return parseStockMessage(content)
-  throw new AcquisitionParseError('Expected RAR PURCHASE, RAR FARM, RAR TRADE, RAR ADD, or RAR STOCK.')
+  if (game === 'MR' && operation === 'farm') {
+    throw new AcquisitionParseError('MR FARM is not supported. Use MR PURCHASE, MR TRADE, MR ADD, or MR STOCK.')
+  }
+  if (operation === 'purchase') return { game, ...parsePurchaseMessage(content) }
+  if (operation === 'farm') return { game, ...parseFarmMessage(content) }
+  if (operation === 'trade') return { game, ...parseTradeMessage(content) }
+  if (operation === 'manual_add') return { game, ...parseAddMessage(content) }
+  if (operation === 'stock_reconcile') return { game, ...parseStockMessage(content) }
+  throw new AcquisitionParseError('Expected a supported RAR or MR operation command.')
 }
 
 export function parseAddMessage(content) {
   const lines = nonEmptyLines(content)
-  if (lines.length !== 1) throw new AcquisitionParseError('RAR ADD must be written on one line.')
+  if (lines.length !== 1) throw new AcquisitionParseError('ADD must be written on one line.')
 
-  const header = lines[0].match(/^RAR\s+ADD\s*(?:-|\u2013|\u2014|:)\s*(.+)$/i)
-  if (!header) throw new AcquisitionParseError('Use "RAR ADD - <quantity> <item>".')
+  const header = lines[0].match(/^(?:RAR|MR)\s+ADD\s*(?:-|\u2013|\u2014|:)\s*(.+)$/i)
+  if (!header) throw new AcquisitionParseError('Use "RAR ADD - ..." or "MR ADD - ...".')
 
   return {
     type: 'manual_add',
@@ -42,10 +51,10 @@ export function parseAddMessage(content) {
 
 export function parseStockMessage(content) {
   const lines = nonEmptyLines(content)
-  if (lines.length !== 1) throw new AcquisitionParseError('RAR STOCK must be written on one line.')
+  if (lines.length !== 1) throw new AcquisitionParseError('STOCK must be written on one line.')
 
-  const header = lines[0].match(/^RAR\s+STOCK\s*(?:-|\u2013|\u2014|:)\s*(.+)$/i)
-  if (!header) throw new AcquisitionParseError('Use "RAR STOCK - <count> <item>".')
+  const header = lines[0].match(/^(?:RAR|MR)\s+STOCK\s*(?:-|\u2013|\u2014|:)\s*(.+)$/i)
+  if (!header) throw new AcquisitionParseError('Use "RAR STOCK - ..." or "MR STOCK - ...".')
 
   return {
     type: 'stock_reconcile',
@@ -59,8 +68,8 @@ export function parsePurchaseMessage(content) {
     throw new AcquisitionParseError('A purchase needs one item line and one total cost line.')
   }
 
-  const header = lines[0].match(/^RAR\s+PURCHASE\s*(?:-|\u2013|\u2014|:)\s*(.+)$/i)
-  if (!header) throw new AcquisitionParseError('Use "RAR PURCHASE - <quantity> <item>".')
+  const header = lines[0].match(/^(?:RAR|MR)\s+PURCHASE\s*(?:-|\u2013|\u2014|:)\s*(.+)$/i)
+  if (!header) throw new AcquisitionParseError('Use "RAR PURCHASE - ..." or "MR PURCHASE - ...".')
 
   return {
     type: 'purchase',
@@ -85,8 +94,8 @@ export function parseFarmMessage(content) {
 
 export function parseTradeMessage(content) {
   const lines = nonEmptyLines(content)
-  if (lines.length !== 3 || !/^RAR\s+TRADE\s*:?\s*$/i.test(lines[0])) {
-    throw new AcquisitionParseError('A trade needs RAR TRADE, GIVE, and RECEIVE lines.')
+  if (lines.length !== 3 || !/^(?:RAR|MR)\s+TRADE\s*:?\s*$/i.test(lines[0])) {
+    throw new AcquisitionParseError('A trade needs a RAR TRADE or MR TRADE header, GIVE, and RECEIVE lines.')
   }
 
   const give = lines[1].match(/^GIVE\s*(?:-|\u2013|\u2014|:)\s*(.+)$/i)

@@ -31,6 +31,18 @@ test('net profit subtracts purchases from wallet credit and never subtracts plat
   assert.notEqual(report.currencies.USD.netProfit, '55')
 })
 
+test('PayPal and TNG are retained in platform financial grouping with fees kept separate', () => {
+  const paypal = sale('2026-09-10T04:00:00Z', 'USD', '25', '1.5')
+  paypal.platform = 'PayPal'
+  const tng = sale('2026-09-11T04:00:00Z', 'MYR', '50', '0')
+  tng.platform = 'TNG'
+  const [report] = aggregateFinancialRecords({ sales: [paypal, tng] }, { selectedMonth: '2026-09' })
+  assert.deepEqual(report.platforms.PayPal.USD, { actualWalletCredit: '25', platformTax: '1.5' })
+  assert.deepEqual(report.platforms.TNG.MYR, { actualWalletCredit: '50', platformTax: '0' })
+  assert.equal(report.currencies.USD.netProfit, '25')
+  assert.equal(report.currencies.MYR.netProfit, '50')
+})
+
 test('USD, MYR, PHP, and IDR are aggregated independently without conversion or combination', () => {
   const [report] = aggregateFinancialRecords({
     sales: [

@@ -38,28 +38,38 @@ export function findExactStockItem(items, requestedName) {
 
 export function buildStockOverviewPages(
   items,
-  { maxDescriptionLength = EMBED_DESCRIPTION_LIMIT } = {},
+  { maxDescriptionLength = EMBED_DESCRIPTION_LIMIT, game = 'RAR', setSummaries = [] } = {},
 ) {
   const stockItems = prepareStockItems(items)
   const lines = stockItems.map((item) => `${item.name} — ${formatStockQuantity(item.stock)}`)
-  const descriptions = packLines(lines, maxDescriptionLength)
+  if (game === 'MR' && setSummaries.length > 0) {
+    lines.push('', '**Furniture set summary**')
+    for (const family of setSummaries) {
+      lines.push(
+        `${family.name} — Tables ${formatStockQuantity(family.tables)}, Chairs ${formatStockQuantity(family.chairs)}, `
+          + `Completed Sets ${formatStockQuantity(family.completed_sets)}, Excess Tables ${formatStockQuantity(family.excess_tables)}, `
+          + `Excess Chairs ${formatStockQuantity(family.excess_chairs)}`,
+      )
+    }
+  }
+  const descriptions = packLines(lines, maxDescriptionLength, `No active ${game} items were found.`)
 
   return descriptions.map((description, index) => ({
     title: descriptions.length === 1
-      ? '📦 RAR Stock Overview'
-      : `📦 RAR Stock Overview (${index + 1}/${descriptions.length})`,
+      ? `📦 ${game} Stock Overview`
+      : `📦 ${game} Stock Overview (${index + 1}/${descriptions.length})`,
     description,
     color: EMBED_COLOR,
     footer: { text: 'Live, read-only inventory' },
   }))
 }
 
-export function buildStockItemPage(item) {
+export function buildStockItemPage(item, { game = 'RAR' } = {}) {
   const [stockItem] = prepareStockItems([item])
   if (!stockItem) return null
 
   return {
-    title: `📦 ${stockItem.name}`,
+    title: game === 'RAR' ? `📦 ${stockItem.name}` : `📦 ${game} — ${stockItem.name}`,
     description: `Current stock: ${formatStockQuantity(stockItem.stock)}`,
     color: EMBED_COLOR,
     footer: { text: 'Live, read-only inventory' },
@@ -76,12 +86,12 @@ export function buildStockAutocompleteChoices(items, focusedValue = '') {
     .map((item) => ({ name: item.name, value: item.name }))
 }
 
-function packLines(lines, maxDescriptionLength) {
+function packLines(lines, maxDescriptionLength, emptyText = 'No active RAR items were found.') {
   if (!Number.isInteger(maxDescriptionLength) || maxDescriptionLength < 1 || maxDescriptionLength > 4096) {
     throw new RangeError('Stock embed description limit must be between 1 and 4096 characters.')
   }
 
-  if (lines.length === 0) return ['No active RAR items were found.']
+  if (lines.length === 0) return [emptyText]
 
   const descriptions = []
   let current = ''

@@ -9,10 +9,10 @@ import {
   parseMonthOption,
 } from './monthly-finance.js'
 import { loadFinancialHistoryRecords, loadMonthlyFinancialRecords } from './supabase.js'
+import { normalizeGame } from './games.js'
 
 const MONTHLY_LOAD_TIMEOUT_MS = 15_000
 const HISTORY_LOAD_TIMEOUT_MS = 30_000
-const MONTHLY_LOAD_ERROR = '❌ Could not load RAR monthly report.\nPlease try again.'
 
 export async function processMonthlyInteraction(
   interaction,
@@ -28,11 +28,12 @@ export async function processMonthlyInteraction(
 
   try {
     const requested = interaction.options.getString('month')
+    const game = normalizeGame(interaction.options.getString('game'))
     const month = requested ? parseMonthOption(requested) : currentMalaysiaMonth(now)
     const range = malaysiaMonthRange(month)
-    const records = await withTimeout(loadRecords(supabase, range), timeoutMs, 'Monthly report timed out.')
+    const records = await withTimeout(loadRecords(supabase, range, game), timeoutMs, 'Monthly report timed out.')
     const [report] = aggregateFinancialRecords(records, { selectedMonth: month })
-    await interaction.editReply({ embeds: [buildMonthlyOverviewPage(report)] })
+    await interaction.editReply({ embeds: [buildMonthlyOverviewPage(report, { game })] })
     return true
   } catch (error) {
     if (error instanceof MonthlyInputError) {
@@ -44,7 +45,10 @@ export async function processMonthlyInteraction(
     }
 
     logger.error?.(`/monthly failed: ${safeErrorMessage(error)}`)
-    await safeEditReply(interaction, { content: MONTHLY_LOAD_ERROR, embeds: [] }, '/monthly', logger)
+    await safeEditReply(interaction, {
+      content: `❌ Could not load ${normalizeGame(interaction.options.getString('game'))} monthly report.\nPlease try again.`,
+      embeds: [],
+    }, '/monthly', logger)
     return false
   }
 }
@@ -61,8 +65,9 @@ export async function processMonthlyHistoryInteraction(
   if (!await deferEphemeral(interaction, '/months', logger)) return false
 
   try {
-    const records = await withTimeout(loadRecords(supabase), timeoutMs, 'Monthly history timed out.')
-    const pages = buildMonthlyHistoryPages(aggregateFinancialRecords(records))
+    const game = normalizeGame(interaction.options.getString('game'))
+    const records = await withTimeout(loadRecords(supabase, game), timeoutMs, 'Monthly history timed out.')
+    const pages = buildMonthlyHistoryPages(aggregateFinancialRecords(records), { game })
     await interaction.editReply({ embeds: [pages[0]] })
     for (const page of pages.slice(1)) {
       await interaction.followUp({ embeds: [page], flags: MessageFlags.Ephemeral })
@@ -70,7 +75,10 @@ export async function processMonthlyHistoryInteraction(
     return true
   } catch (error) {
     logger.error?.(`/months failed: ${safeErrorMessage(error)}`)
-    await safeEditReply(interaction, { content: MONTHLY_LOAD_ERROR, embeds: [] }, '/months', logger)
+    await safeEditReply(interaction, {
+      content: `❌ Could not load ${normalizeGame(interaction.options.getString('game'))} monthly report.\nPlease try again.`,
+      embeds: [],
+    }, '/months', logger)
     return false
   }
 }

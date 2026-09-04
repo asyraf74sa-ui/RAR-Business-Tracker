@@ -87,6 +87,28 @@ test('/stock refreshes live data for every command and autocomplete invocation',
   assert.deepEqual(autocomplete.responses[0], [{ name: 'Piano', value: 'Piano' }])
 })
 
+test('/stock defaults to RAR while game:MR loads and displays MR only', async () => {
+  const mrRows = [{ id: 'chair', name: 'Test Chair', stock: 22, kind: 'item', active: true }]
+  const interaction = fakeInteraction(null, 'MR')
+  let receivedGame
+  await processStockInteraction(interaction, {
+    supabase: {},
+    loadItems: async (supabase, game) => {
+      receivedGame = game
+      return mrRows
+    },
+    loadSetSummaries: async () => [{
+      name: 'Test Family', tables: 5, chairs: 22, completed_sets: 5, excess_tables: 0, excess_chairs: 2,
+    }],
+    logger: silentLogger,
+  })
+  assert.equal(receivedGame, 'MR')
+  assert.equal(interaction.edits[0].embeds[0].title, '📦 MR Stock Overview')
+  assert.match(interaction.edits[0].embeds[0].description, /Test Chair — 22/)
+  assert.match(interaction.edits[0].embeds[0].description, /Completed Sets 5/)
+  assert.doesNotMatch(interaction.edits[0].embeds[0].description, /Gems|Piano/)
+})
+
 test('/stock handles Supabase and Discord timeout failures without throwing', async () => {
   const interaction = fakeInteraction()
   const result = await processStockInteraction(interaction, {
@@ -111,23 +133,23 @@ test('/stock handles Supabase and Discord timeout failures without throwing', as
   assert.equal(timedOut.edits.length, 0)
 })
 
-function fakeInteraction(item = null) {
+function fakeInteraction(item = null, game = null) {
   return {
     deferredWith: null,
     edits: [],
     followUps: [],
-    options: { getString: () => item },
+    options: { getString: (name) => name === 'game' ? game : item },
     async deferReply(options) { this.deferredWith = options },
     async editReply(options) { this.edits.push(options) },
     async followUp(options) { this.followUps.push(options) },
   }
 }
 
-function fakeAutocomplete(focused) {
+function fakeAutocomplete(focused, game = null) {
   return {
     responded: false,
     responses: [],
-    options: { getFocused: () => focused },
+    options: { getFocused: () => focused, getString: (name) => name === 'game' ? game : null },
     async respond(choices) {
       this.responded = true
       this.responses.push(choices)

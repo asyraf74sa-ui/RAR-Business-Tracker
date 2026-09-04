@@ -102,12 +102,40 @@ test('/monthly handles data and Discord interaction timeouts without throwing', 
   assert.equal(expired.edits.length, 0)
 })
 
-function fakeInteraction(month = null) {
+test('/monthly and /months default to RAR and keep game:MR data isolated', async () => {
+  const monthly = fakeInteraction(null, 'MR')
+  let monthlyGame
+  await processMonthlyInteraction(monthly, {
+    supabase: {},
+    loadRecords: async (supabase, range, game) => {
+      monthlyGame = game
+      return { sales: [], inventoryEvents: [] }
+    },
+    logger: silentLogger,
+  })
+  assert.equal(monthlyGame, 'MR')
+  assert.equal(monthly.edits[0].embeds[0].title, '📊 MR Monthly Overview')
+
+  const history = fakeInteraction(null, 'MR')
+  let historyGame
+  await processMonthlyHistoryInteraction(history, {
+    supabase: {},
+    loadRecords: async (supabase, game) => {
+      historyGame = game
+      return { sales: [], inventoryEvents: [] }
+    },
+    logger: silentLogger,
+  })
+  assert.equal(historyGame, 'MR')
+  assert.equal(history.edits[0].embeds[0].title, '📅 MR Profit History')
+})
+
+function fakeInteraction(month = null, game = null) {
   return {
     deferredWith: null,
     edits: [],
     followUps: [],
-    options: { getString: () => month },
+    options: { getString: (name) => name === 'game' ? game : month },
     async deferReply(options) { this.deferredWith = options },
     async editReply(options) { this.edits.push(options) },
     async followUp(options) { this.followUps.push(options) },

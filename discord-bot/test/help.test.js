@@ -10,20 +10,24 @@ test('/help exposes add, read-only stock overview, and stock reconciliation topi
   assert.ok(values.includes('stock'))
 })
 
-test('plain help gives a useful overview of every operation', () => {
+test('plain help explains shared sales, isolated operations, platforms, and game selectors', () => {
   const [page] = buildHelpPages()
-  for (const operation of ['SALES', 'PURCHASE', 'FARM', 'TRADE', 'ADD STOCK', 'STOCK OVERVIEW', 'MONTHLY FINANCIAL OVERVIEW', 'STOCKTAKE / RECONCILE']) {
-    assert.match(page.description, new RegExp(operation))
+  for (const text of ['SHARED SALES', 'RAR ACQUISITIONS', 'MR OPERATIONS', 'FARM', 'STOCK OVERVIEW', 'MONTHLY FINANCIAL']) {
+    assert.match(page.description, new RegExp(text))
   }
+  assert.match(page.description, /PayPal, TNG/)
+  assert.match(page.description, /RAR - \.\.\.` or `MR - \.\.\./)
+  assert.match(page.description, /\/stock game:MR/)
+  assert.match(page.description, /\/monthly game:MR/)
   assert.match(page.description, /`\/stock` \*\*reads\*\* inventory only/i)
-  assert.match(page.description, /`RAR STOCK - \.\.\.` \*\*sets\/reconciles\*\*/i)
+  assert.match(page.description, /MR STOCK - \.\.\.` \*\*set\/reconcile\*\*/i)
 })
 
 test('/help monthly explains the formula without deducting platform tax twice', () => {
   const [page] = buildHelpPages('monthly')
-  assert.equal(page.title, 'RAR Bot Help — monthly')
-  assert.match(page.description, /\/monthly month:2026-09/)
-  assert.match(page.description, /`\/months`/)
+  assert.equal(page.title, 'RAR + MR Bot Help — monthly')
+  assert.match(page.description, /\/monthly game:MR month:2026-09/)
+  assert.match(page.description, /`\/months game:RAR`/)
   assert.match(page.description, /Net Profit = Actual Wallet Credit − Item Purchase Spending/)
   assert.match(page.description, /not subtracted again/i)
   assert.match(page.description, /Net Profit: \$70\.00 — not \$55\.00/)
@@ -32,7 +36,7 @@ test('/help monthly explains the formula without deducting platform tax twice', 
 
 test('/help add explains that ADD increases rather than sets stock', () => {
   const [page] = buildHelpPages('add')
-  assert.equal(page.title, 'RAR Bot Help — add')
+  assert.equal(page.title, 'RAR + MR Bot Help — add')
   assert.match(page.description, /Manual stock addition/)
   assert.match(page.description, /increase/i)
   assert.match(page.description, /RAR ADD - 5 HOST STATION, 3 GREENHOUSE/)
@@ -41,7 +45,7 @@ test('/help add explains that ADD increases rather than sets stock', () => {
 
 test('/help stock explains that STOCK sets an exact count rather than adding it', () => {
   const [page] = buildHelpPages('stock')
-  assert.equal(page.title, 'RAR Bot Help — stock')
+  assert.equal(page.title, 'RAR + MR Bot Help — stock')
   assert.match(page.description, /Stock reconciliation \/ physical count/)
   assert.match(page.description, /set/i)
   assert.match(page.description, /46,398 GEMS/)
@@ -50,9 +54,9 @@ test('/help stock explains that STOCK sets an exact count rather than adding it'
 
 test('/help stockoverview explains that /stock views live inventory without modifying it', () => {
   const [page] = buildHelpPages('stockoverview')
-  assert.equal(page.title, 'RAR Bot Help — stockoverview')
+  assert.equal(page.title, 'RAR + MR Bot Help — stockoverview')
   assert.match(page.description, /Shows live inventory/)
-  assert.match(page.description, /\/stock item:Piano/)
+  assert.match(page.description, /\/stock game:RAR item:Piano/)
   assert.match(page.description, /only \*\*reads\*\* inventory/i)
   assert.match(page.description, /RAR STOCK - <count> <item>/)
 })

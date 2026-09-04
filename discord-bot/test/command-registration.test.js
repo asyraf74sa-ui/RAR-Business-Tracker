@@ -7,15 +7,20 @@ test('guild definitions register help, stock, and monthly reporting commands', (
   assert.deepEqual(definitions.map(({ name }) => name), ['help', 'stock', 'monthly', 'months'])
 
   const stock = definitions.find(({ name }) => name === 'stock')
-  assert.equal(stock.options[0].name, 'item')
-  assert.equal(stock.options[0].required, false)
-  assert.equal(stock.options[0].autocomplete, true)
+  assert.deepEqual(stock.options[0].choices.map(({ value }) => value), ['RAR', 'MR'])
+  assert.equal(stock.options[1].name, 'item')
+  assert.equal(stock.options[1].required, false)
+  assert.equal(stock.options[1].autocomplete, true)
 
   const monthly = definitions.find(({ name }) => name === 'monthly')
-  assert.equal(monthly.options[0].name, 'month')
-  assert.equal(monthly.options[0].required, false)
-  assert.equal(monthly.options[0].min_length, 7)
-  assert.equal(monthly.options[0].max_length, 7)
+  assert.deepEqual(monthly.options[0].choices.map(({ value }) => value), ['RAR', 'MR'])
+  assert.equal(monthly.options[1].name, 'month')
+  assert.equal(monthly.options[1].required, false)
+  assert.equal(monthly.options[1].min_length, 7)
+  assert.equal(monthly.options[1].max_length, 7)
+
+  const months = definitions.find(({ name }) => name === 'months')
+  assert.deepEqual(months.options[0].choices.map(({ value }) => value), ['RAR', 'MR'])
 })
 
 test('guild command registration is idempotent and preserves unrelated commands', async () => {

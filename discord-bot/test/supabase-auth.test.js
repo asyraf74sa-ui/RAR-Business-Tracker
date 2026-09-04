@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  addMRStockBundle,
   addStockBundle,
   authenticateSupabase,
   claimFarmCycles,
@@ -11,7 +12,14 @@ import {
   loadFinancialHistoryRecords,
   loadInventoryEvents,
   loadMonthlyFinancialRecords,
+  loadMRActiveItems,
+  loadMRCatalog,
+  loadMRSetStockSummaries,
   reconcileStockBundle,
+  reconcileMRStockBundle,
+  recordMRPurchaseBundle,
+  recordMRSale,
+  recordMRTrade,
   recordPurchaseBundle,
   recordSale,
   recordTrade,
@@ -177,6 +185,11 @@ test('all mutation helpers reuse the same deterministic request ID across one au
     ['trade', recordTrade, 'rar_record_trade'],
     ['add', addStockBundle, 'rar_add_stock_bundle'],
     ['stock', reconcileStockBundle, 'rar_reconcile_stock_batch'],
+    ['MR sale', recordMRSale, 'mr_record_sale'],
+    ['MR purchase', recordMRPurchaseBundle, 'mr_record_purchase_bundle'],
+    ['MR trade', recordMRTrade, 'mr_record_trade'],
+    ['MR add', addMRStockBundle, 'mr_add_stock_bundle'],
+    ['MR stock', reconcileMRStockBundle, 'mr_reconcile_stock_batch'],
   ]
 
   for (const [name, mutate, functionName] of mutations) {
@@ -257,6 +270,9 @@ test('every read path used by messages and slash commands recovers from an auth 
     ['/stock and /help active items', (client) => loadActiveItems(client)],
     ['/monthly records', (client) => loadMonthlyFinancialRecords(client, range)],
     ['/months history', (client) => loadFinancialHistoryRecords(client)],
+    ['MR catalog', (client) => loadMRCatalog(client)],
+    ['MR active items', (client) => loadMRActiveItems(client)],
+    ['MR set summaries', (client) => loadMRSetStockSummaries(client)],
   ]
 
   for (const [name, read] of reads) {

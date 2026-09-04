@@ -15,43 +15,49 @@ export const HELP_TOPICS = [
 ]
 
 export function buildHelpPages(topic = 'overview', itemNames = []) {
-  if (topic === 'items') return buildItemHelpPages(itemNames)
+  if (topic === 'items') {
+    if (Array.isArray(itemNames)) return buildItemHelpPages(itemNames, { game: 'RAR' })
+    return [
+      ...buildItemHelpPages(itemNames.RAR || [], { game: 'RAR' }),
+      ...buildItemHelpPages(itemNames.MR || [], { game: 'MR' }),
+    ]
+  }
 
   const descriptions = {
     overview: [
-      '**SALES — sales channel only**',
-      '```text\nRAR - <quantity> <item>, <quantity> <item>\n<net amount> <currency>\n<platform fee> <currency> TAX\n<platform>\n```',
-      '**PURCHASE — acquisition channel only**',
-      '```text\nRAR PURCHASE - <quantity> <item>, <quantity> <item>\n<total purchase cost> <currency>\n```',
-      '**FARM — acquisition channel only**',
+      '**SHARED SALES RECORD CHANNEL**',
+      'Use `RAR - ...` or `MR - ...`; the prefix selects the game.',
+      '```text\nMR - <quantity> <item>\n<net amount> <currency>\n<platform fee> <currency> TAX\n<platform>\n```',
+      '**Platforms**',
+      'Eldorado, ZeusX, Gameflip, PlayerAuctions, G2G, Itemku, PayPal, TNG, Direct.',
+      '**RAR ACQUISITIONS CHANNEL**',
+      '`RAR PURCHASE`, `RAR FARM`, `RAR TRADE`, `RAR ADD`, `RAR STOCK`',
+      '**MR OPERATIONS CHANNEL**',
+      '`MR PURCHASE`, `MR TRADE`, `MR ADD`, `MR STOCK`',
+      '**FARM — RAR only**',
       '```text\nRAR FARM - <number> CYCLE\n```',
-      '**TRADE — acquisition channel only**',
-      '```text\nRAR TRADE\nGIVE - <quantity> <item>\nRECEIVE - <quantity> <item>\n```',
-      '**ADD STOCK — acquisition channel only**',
-      '```text\nRAR ADD - <quantity> <item>, <quantity> <item>\n```',
       '**STOCK OVERVIEW — read only, any channel**',
-      '`/stock`',
-      'View every current item quantity without changing inventory.',
-      '`/stock` **reads** inventory only. `RAR STOCK - ...` **sets/reconciles** exact inventory quantities.',
+      '`/stock` or `/stock game:MR`',
+      '`/stock` defaults to RAR. Each response contains only one game.',
+      '`/stock` **reads** inventory only. `RAR STOCK - ...` and `MR STOCK - ...` **set/reconcile** exact inventory.',
       '**MONTHLY FINANCIAL OVERVIEW — read only, any channel**',
-      '`/monthly` — current Malaysia-calendar month',
-      '`/monthly month:2026-09` — a specific month',
-      '`/months` — every recorded month, newest first',
+      '`/monthly game:RAR` or `/monthly game:MR`',
+      '`/months game:RAR` or `/months game:MR`',
+      'No game option defaults to RAR.',
       'Shows **Actual Wallet Credit**, **Platform Tax**, **Item Purchase Spending**, and **Net Profit** separately for USD / MYR / PHP / IDR.',
-      '**STOCKTAKE / RECONCILE — acquisition channel only**',
-      '```text\nRAR STOCK - <count> <item>, <count> <item>\n```',
-      '**ADD increases** the current quantity. **STOCK sets** the exact counted quantity.',
+      '**ADD increases** quantity. **STOCK sets** the exact counted quantity. MR set aliases work only when configured for a confirmed family.',
       'Choose the **Valid item names** topic to refresh and display every active canonical item name.',
     ].join('\n'),
     sales: [
-      '**RAR sale**',
-      '```text\nRAR - 3,000 GEMS, 1 PIANO\n12.42 US\n1.38 US TAX\nZEUSX\n```',
-      'Records revenue and platform fee, then deducts the listed inventory. Post this only in the configured sales channel.',
+      '**RAR or MR sale — shared sales channel**',
+      '```text\nMR - 1 ITEM NAME\n25.00 US\n0.50 US TAX\nPAYPAL\n```',
+      'The first amount is the actual credit received. TAX/FEE is reported separately and is not subtracted again. Zero or nonzero fees are valid.',
+      'TNG aliases include Touch n Go, Touch ‘n Go, Touch ‘n Go eWallet, and TNG eWallet.',
     ].join('\n'),
     purchase: [
       '**Stock purchase**',
-      '```text\nRAR PURCHASE - 5 HOST STATION, 2 GREENHOUSE\n336 PHP\n```',
-      'Adds every listed item atomically and records the total cash cost exactly once. Post this only in the acquisition channel.',
+      '```text\nMR PURCHASE - 5 ITEM A, 2 ITEM B\n25 USD\n```',
+      'RAR purchases go to the RAR acquisitions channel. MR purchases go to the MR Operations channel. Bundle cost is counted once.',
     ].join('\n'),
     farm: [
       '**Farm claim**',
@@ -60,13 +66,13 @@ export function buildHelpPages(topic = 'overview', itemNames = []) {
     ].join('\n'),
     trade: [
       '**In-game trade**',
-      '```text\nRAR TRADE\nGIVE - 1 PIANO\nRECEIVE - 6,000 GEMS\n```',
+      '```text\nMR TRADE\nGIVE - 1 ITEM A\nRECEIVE - 2 ITEM B\n```',
       'GIVE decreases inventory and RECEIVE increases inventory in one atomic operation. It records no cash sale or purchase.',
     ].join('\n'),
     add: [
       '**Manual stock addition**',
       'Use this when you acquired inventory and simply want to **increase** the tracked quantity.',
-      '```text\nRAR ADD - <quantity> <item>, <quantity> <item>\n```',
+      '```text\nRAR ADD - <quantity> <item>\nMR ADD - <quantity> <item>\n```',
       '**Example**',
       '```text\nRAR ADD - 5 HOST STATION, 3 GREENHOUSE\n```',
       'Current 10 Host Station + ADD 5 = 15 Host Station.',
@@ -74,19 +80,19 @@ export function buildHelpPages(topic = 'overview', itemNames = []) {
     ].join('\n'),
     stockoverview: [
       '**Stock overview**',
-      '`/stock`',
-      'Shows live inventory from the RAR tracker in a private response.',
+      '`/stock game:RAR` or `/stock game:MR`',
+      'Shows live inventory for one game in a private response; omitted game defaults to RAR.',
       '**Optional specific item**',
-      '`/stock item:Piano`',
+      '`/stock game:RAR item:Piano`',
       'This command only **reads** inventory and does not modify stock.',
       'To set or correct exact stock quantities, post this in the acquisition channel:',
       '```text\nRAR STOCK - <count> <item>\n```',
     ].join('\n'),
     monthly: [
       '**Monthly financial reports — private and read only**',
-      '`/monthly` — current Malaysia-calendar month',
-      '`/monthly month:2026-09` — a specific month',
-      '`/months` — every month containing a sale or cash supplier purchase',
+      '`/monthly game:RAR` or `/monthly game:MR` — current Malaysia-calendar month',
+      '`/monthly game:MR month:2026-09` — a specific month',
+      '`/months game:RAR` or `/months game:MR` — every recorded month',
       '',
       '**Net Profit = Actual Wallet Credit − Item Purchase Spending**',
       'Platform Tax is displayed for reference and is **not subtracted again**, because Actual Wallet Credit is already the amount received after platform fees.',
@@ -102,7 +108,7 @@ export function buildHelpPages(topic = 'overview', itemNames = []) {
     stock: [
       '**Stock reconciliation / physical count**',
       'Use this when you physically counted inventory and want to **set** the exact current quantity.',
-      '```text\nRAR STOCK - <count> <item>, <count> <item>\n```',
+      '```text\nRAR STOCK - <count> <item>\nMR STOCK - <count> <item>\n```',
       '**Example**',
       '```text\nRAR STOCK - 17 HOST STATION, 8 GREENHOUSE, 46,398 GEMS\n```',
       'If tracked Host Station stock was 10, `RAR STOCK - 17 HOST STATION` sets it to exactly 17. It does **not** add 17.',
@@ -111,13 +117,13 @@ export function buildHelpPages(topic = 'overview', itemNames = []) {
   }
 
   return [{
-    title: topic === 'overview' ? 'RAR Bot Help' : `RAR Bot Help — ${topic}`,
+    title: topic === 'overview' ? 'RAR + MR Bot Help' : `RAR + MR Bot Help — ${topic}`,
     description: descriptions[topic] || descriptions.overview,
     color: EMBED_COLOR,
   }]
 }
 
-export function buildItemHelpPages(itemNames, { maxDescriptionLength = ITEM_DESCRIPTION_LIMIT } = {}) {
+export function buildItemHelpPages(itemNames, { maxDescriptionLength = ITEM_DESCRIPTION_LIMIT, game = 'RAR' } = {}) {
   const names = [...itemNames].map(String).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
   const lines = names.map((name) => `• ${name}`)
   const descriptions = []
@@ -137,12 +143,12 @@ export function buildItemHelpPages(itemNames, { maxDescriptionLength = ITEM_DESC
   }
 
   if (current) descriptions.push(current)
-  if (descriptions.length === 0) descriptions.push('No active RAR items were found.')
+  if (descriptions.length === 0) descriptions.push(`No active ${game} items were found.`)
 
   return descriptions.map((description, index) => ({
     title: descriptions.length === 1
-      ? 'Valid RAR Item Names'
-      : `Valid RAR Item Names (${index + 1}/${descriptions.length})`,
+      ? `Valid ${game} Item Names`
+      : `Valid ${game} Item Names (${index + 1}/${descriptions.length})`,
     description,
     color: EMBED_COLOR,
     footer: { text: 'Live from the active Supabase item catalog' },

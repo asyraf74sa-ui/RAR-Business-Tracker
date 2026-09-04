@@ -18,7 +18,17 @@ test('classifies only acquisition headers as acquisition operations', () => {
   assert.equal(detectAcquisitionOperation('RAR TRADE\nGIVE - 1 PIANO\nRECEIVE - 1 GEMS'), 'trade')
   assert.equal(detectAcquisitionOperation('RAR ADD - 1 PIANO'), 'manual_add')
   assert.equal(detectAcquisitionOperation('RAR STOCK - 1 PIANO'), 'stock_reconcile')
+  assert.equal(detectAcquisitionOperation('MR PURCHASE - 1 TEST ITEM\n25 USD'), 'purchase')
+  assert.equal(detectAcquisitionOperation('MR STOCK - 0 TEST ITEM'), 'stock_reconcile')
   assert.equal(detectAcquisitionOperation('RAR - 1 PIANO\n10 US\n1 US TAX\nZEUSX'), null)
+})
+
+test('MR purchase, trade, add, and exact stock use the shared parser without enabling MR FARM', () => {
+  assert.equal(parseAcquisitionMessage('MR PURCHASE - 1 TEST ITEM\n25 USD').game, 'MR')
+  assert.equal(parseAcquisitionMessage('MR ADD - 2 TEST ITEM').game, 'MR')
+  assert.equal(parseAcquisitionMessage('MR STOCK - 0 TEST ITEM').items[0].quantity, 0)
+  assert.equal(parseAcquisitionMessage('MR TRADE\nGIVE - 1 TEST ITEM\nRECEIVE - 2 OTHER ITEM').game, 'MR')
+  assert.throws(() => parseAcquisitionMessage('MR FARM - 1 CYCLE'), /not supported/i)
 })
 
 test('parses a single-item manual stock addition', () => {

@@ -27,13 +27,16 @@ import {
 } from './catalog.js'
 import { registerGuildCommands } from './command-registration.js'
 import { buildHelpPages } from './help.js'
+import { resolveMRItems, resolveMRSaleItems, resolveMRTradeItems } from './mr-catalog.js'
 import { processMonthlyHistoryInteraction, processMonthlyInteraction } from './monthly-command.js'
-import { isSaleMessage, parseSaleMessage, SaleParseError } from './parser.js'
+import { detectSaleGame, isSaleMessage, parseSaleMessage, SaleParseError } from './parser.js'
 import { discordRequestId } from './request-id.js'
+import { routeDiscordMessage } from './routing.js'
 import { buildStockReconciliationResults, formatStockReconciliationLine } from './stock-results.js'
 import { processStockAutocompleteInteraction, processStockInteraction } from './stock-command.js'
 import {
   addStockBundle,
+  addMRStockBundle,
   authenticateSupabase,
   claimFarmCycles,
   createBotSupabaseClient,
@@ -42,6 +45,12 @@ import {
   loadActiveItems,
   loadCatalog,
   loadInventoryEvents,
+  loadMRActiveItems,
+  loadMRCatalog,
+  recordMRPurchaseBundle,
+  reconcileMRStockBundle,
+  recordMRSale,
+  recordMRTrade,
   recordPurchaseBundle,
   reconcileStockBundle,
   recordSale,
@@ -70,7 +79,7 @@ const warnedEditedMessages = new Set()
 
 client.once(Events.ClientReady, (readyClient) => {
   console.log(
-    `RAR Discord bot ready as ${readyClient.user.tag}. Watching sales ${config.DISCORD_SALES_CHANNEL_ID} and acquisitions ${config.DISCORD_ACQUISITION_CHANNEL_ID}.`,
+    `RAR + MR Discord bot ready as ${readyClient.user.tag}. Watching shared sales, RAR acquisitions, and MR operations.`,
   )
   registerGuildCommands(readyClient, { guildId: config.DISCORD_GUILD_ID }).then(({ guild }) => {
     console.log(`Guild /help, /stock, /monthly, and /months commands are ready in ${guild.name}.`)
@@ -134,7 +143,12 @@ async function processDiscordMessage(message, { isEdit }) {
   }
 
   if (message.channelId === config.DISCORD_ACQUISITION_CHANNEL_ID) {
-    await processDiscordAcquisition(message, { isEdit })
+    await processDiscordAcquisition(message, { isEdit, game: 'RAR' })
+    return
+  }
+
+  if (message.channelId === config.DISCORD_MR_OPERATIONS_CHANNEL_ID) {
+    await processDiscordAcquisition(message, { isEdit, game: 'MR' })
   }
 }
 
@@ -145,7 +159,8 @@ async function processDiscordSale(message, { isEdit }) {
   const requestId = requestIdFor(message)
 
   try {
-    const existingSaleId = await findRecordedSale(supabase, requestId)
+    const game = detectSaleGame(message.content)
+    const existingSaleId = await findRecordedSale(supabase, requestId, game)
     if (existingSaleId) {
       await warnAlreadyRecorded(message, { isEdit, recordKind: 'Discord message' })
       return
@@ -154,11 +169,13 @@ async function processDiscordSale(message, { isEdit }) {
     if (!looksLikeSale) return
 
     const parsed = parseSaleMessage(message.content)
-    const catalog = await loadCatalog(supabase)
+    const catalog = parsed.game === 'MR' ? await loadMRCatalog(supabase) : await loadCatalog(supabase)
     const platform = resolvePlatform(parsed.platform, catalog.platforms)
-    const resolvedItems = resolveSaleItems(parsed.items, catalog.items)
+    const resolved = parsed.game === 'MR'
+      ? resolveMRSaleItems(parsed.items, catalog)
+      : { items: resolveSaleItems(parsed.items, catalog.items) }
 
-    await recordSale(supabase, {
+    const payload = {
       p_sold_at: message.createdAt.toISOString(),
       p_platform: platform.name,
       p_net_credit: parsed.netCredit,
@@ -166,59 +183,60 @@ async function processDiscordSale(message, { isEdit }) {
       p_currency: parsed.currency,
       p_classification: 'normal',
       p_notes: `Recorded automatically from Discord message ${message.id}`,
-      p_items: resolvedItems.map(({ item, quantity }) => ({
-        item_id: item.id,
-        quantity,
-        unit_gross_price: null,
-      })),
+      p_items: parsed.game === 'MR'
+        ? resolved.rpcItems
+        : resolved.items.map(({ item, quantity }) => ({ item_id: item.id, quantity, unit_gross_price: null })),
       p_inventory_applied: true,
       p_request_id: requestId,
-    })
+    }
+    if (parsed.game === 'MR') await recordMRSale(supabase, payload)
+    else await recordSale(supabase, payload)
 
-    await safeReply(message, saleConfirmation({ parsed, platform, resolvedItems }))
+    await safeReply(message, saleConfirmation({ parsed, platform, resolvedItems: resolved.items }))
   } catch (error) {
     console.error(`Sale ${message.id} was not recorded: ${safeErrorMessage(error)}`)
     await safeReply(message, `❌ Sale not recorded\n${userFacingError(error, 'sale')}`)
   }
 }
 
-async function processDiscordAcquisition(message, { isEdit }) {
+async function processDiscordAcquisition(message, { isEdit, game }) {
   const operation = detectAcquisitionOperation(message.content)
   const operationTypes = ['purchase', 'farm', 'trade', 'manual_add', 'stock_reconcile']
   const requestIds = operationTypes.map((type) => requestIdFor(message, type))
 
   try {
     if (isEdit) {
-      const existing = await findRecordedInventoryOperation(supabase, requestIds)
+      const existing = await findRecordedInventoryOperation(supabase, requestIds, game)
       if (existing) {
         await warnAlreadyRecorded(message, {
           isEdit: true,
           recordKind: 'record',
-          stockRecord: ['manual_add', 'stock_adjustment'].includes(existing.event_type),
+          stockRecord: ['manual_add', 'stock_adjustment', 'reconcile'].includes(existing.event_type),
         })
         return
       }
     }
 
-    if (!operation) return
+    const route = routeDiscordMessage(message.channelId, message.content, config)
+    if (!operation || route?.kind !== 'operation' || route.game !== game) return
 
     const parsed = parseAcquisitionMessage(message.content)
     const requestId = requestIdFor(message, parsed.type)
-    const existing = await findRecordedInventoryOperation(supabase, [requestId])
+    const existing = await findRecordedInventoryOperation(supabase, [requestId], game)
     if (existing) {
       await warnAlreadyRecorded(message, {
         isEdit,
         recordKind: 'record',
-        stockRecord: ['manual_add', 'stock_adjustment'].includes(existing.event_type),
+        stockRecord: ['manual_add', 'stock_adjustment', 'reconcile'].includes(existing.event_type),
       })
       return
     }
 
-    if (parsed.type === 'purchase') await processPurchase(message, parsed, requestId)
+    if (parsed.type === 'purchase') await processPurchase(message, parsed, requestId, game)
     else if (parsed.type === 'farm') await processFarm(message, parsed, requestId)
-    else if (parsed.type === 'trade') await processTrade(message, parsed, requestId)
-    else if (parsed.type === 'manual_add') await processManualAdd(message, parsed, requestId)
-    else await processStockReconciliation(message, parsed, requestId)
+    else if (parsed.type === 'trade') await processTrade(message, parsed, requestId, game)
+    else if (parsed.type === 'manual_add') await processManualAdd(message, parsed, requestId, game)
+    else await processStockReconciliation(message, parsed, requestId, game)
   } catch (error) {
     const label = operationLabel(operation)
     console.error(`${label} ${message.id} was not recorded: ${safeErrorMessage(error)}`)
@@ -226,24 +244,29 @@ async function processDiscordAcquisition(message, { isEdit }) {
   }
 }
 
-async function processPurchase(message, parsed, requestId) {
-  const catalog = await loadCatalog(supabase)
-  const resolvedItems = resolvePurchaseItems(parsed.items, catalog.items)
-  const result = await recordPurchaseBundle(supabase, {
-    p_items: rpcItems(resolvedItems),
+async function processPurchase(message, parsed, requestId, game) {
+  const catalog = game === 'MR' ? await loadMRCatalog(supabase) : await loadCatalog(supabase)
+  const resolved = game === 'MR'
+    ? resolveMRItems(parsed.items, catalog)
+    : { items: resolvePurchaseItems(parsed.items, catalog.items) }
+  const payload = {
+    p_items: game === 'MR' ? resolved.rpcItems : rpcItems(resolved.items),
     p_cash_amount: parsed.cost.amount,
     p_cash_currency: parsed.cost.currency,
     p_event_at: message.createdAt.toISOString(),
     p_notes: `Recorded automatically from Discord purchase message ${message.id}`,
     p_request_id: requestId,
-  })
+  }
+  const result = game === 'MR'
+    ? await recordMRPurchaseBundle(supabase, payload)
+    : await recordPurchaseBundle(supabase, payload)
 
   if (isDuplicateRpcResult(result)) {
     await warnAlreadyRecorded(message, { isEdit: false, recordKind: 'record' })
     return
   }
 
-  const lines = resolvedItems.map(({ item, quantity }) => `+${formatQuantity(quantity)} ${item.name}`)
+  const lines = resolved.items.map(({ item, quantity }) => `+${formatQuantity(quantity)} ${item.name}`)
   await safeReply(message, [
     '✅ Purchase recorded',
     ...lines,
@@ -284,16 +307,19 @@ async function processFarm(message, parsed, requestId) {
   ].join('\n'))
 }
 
-async function processTrade(message, parsed, requestId) {
-  const catalog = await loadCatalog(supabase)
-  const resolved = resolveTradeItems(parsed.giveItems, parsed.receiveItems, catalog.items)
-  const result = await recordTrade(supabase, {
+async function processTrade(message, parsed, requestId, game) {
+  const catalog = game === 'MR' ? await loadMRCatalog(supabase) : await loadCatalog(supabase)
+  const resolved = game === 'MR'
+    ? resolveMRTradeItems(parsed.giveItems, parsed.receiveItems, catalog)
+    : resolveTradeItems(parsed.giveItems, parsed.receiveItems, catalog.items)
+  const payload = {
     p_event_at: message.createdAt.toISOString(),
-    p_give_items: rpcItems(resolved.give),
-    p_receive_items: rpcItems(resolved.receive),
+    p_give_items: game === 'MR' ? resolved.give.rpcItems : rpcItems(resolved.give),
+    p_receive_items: game === 'MR' ? resolved.receive.rpcItems : rpcItems(resolved.receive),
     p_notes: `Recorded automatically from Discord trade message ${message.id}`,
     p_request_id: requestId,
-  })
+  }
+  const result = game === 'MR' ? await recordMRTrade(supabase, payload) : await recordTrade(supabase, payload)
 
   if (isDuplicateRpcResult(result)) {
     await warnAlreadyRecorded(message, { isEdit: false, recordKind: 'record' })
@@ -304,22 +330,27 @@ async function processTrade(message, parsed, requestId) {
     '✅ Trade recorded',
     '',
     'Gave:',
-    ...resolved.give.map(({ item, quantity }) => `-${formatQuantity(quantity)} ${item.name}`),
+    ...(game === 'MR' ? resolved.give.items : resolved.give)
+      .map(({ item, quantity }) => `-${formatQuantity(quantity)} ${item.name}`),
     '',
     'Received:',
-    ...resolved.receive.map(({ item, quantity }) => `+${formatQuantity(quantity)} ${item.name}`),
+    ...(game === 'MR' ? resolved.receive.items : resolved.receive)
+      .map(({ item, quantity }) => `+${formatQuantity(quantity)} ${item.name}`),
   ].join('\n'))
 }
 
-async function processManualAdd(message, parsed, requestId) {
-  const catalog = await loadCatalog(supabase)
-  const resolvedItems = resolveManualAddItems(parsed.items, catalog.items)
-  const result = await addStockBundle(supabase, {
+async function processManualAdd(message, parsed, requestId, game) {
+  const catalog = game === 'MR' ? await loadMRCatalog(supabase) : await loadCatalog(supabase)
+  const resolved = game === 'MR'
+    ? resolveMRItems(parsed.items, catalog)
+    : { items: resolveManualAddItems(parsed.items, catalog.items) }
+  const payload = {
     p_event_at: message.createdAt.toISOString(),
-    p_items: rpcItems(resolvedItems),
+    p_items: game === 'MR' ? resolved.rpcItems : rpcItems(resolved.items),
     p_notes: `Recorded automatically from Discord manual-add message ${message.id}`,
     p_request_id: requestId,
-  })
+  }
+  const result = game === 'MR' ? await addMRStockBundle(supabase, payload) : await addStockBundle(supabase, payload)
 
   if (isDuplicateRpcResult(result)) {
     await warnAlreadyRecorded(message, { isEdit: false, recordKind: 'record', stockRecord: true })
@@ -329,22 +360,27 @@ async function processManualAdd(message, parsed, requestId) {
   await safeReply(message, [
     '✅ Stock added',
     '',
-    ...resolvedItems.map(({ item, quantity }) => `+${formatQuantity(quantity)} ${item.name}`),
+    ...resolved.items.map(({ item, quantity }) => `+${formatQuantity(quantity)} ${item.name}`),
   ].join('\n'))
 }
 
-async function processStockReconciliation(message, parsed, requestId) {
-  const catalog = await loadCatalog(supabase)
-  const resolvedItems = resolveStockItems(parsed.items, catalog.items)
-  const result = await reconcileStockBundle(supabase, {
-    p_counts: resolvedItems.map(({ item, quantity }) => ({
-      item_id: item.id,
-      counted_stock: quantity,
-    })),
+async function processStockReconciliation(message, parsed, requestId, game) {
+  const catalog = game === 'MR' ? await loadMRCatalog(supabase) : await loadCatalog(supabase)
+  const resolved = game === 'MR'
+    ? resolveMRItems(parsed.items, catalog, { combineDuplicates: false })
+    : { items: resolveStockItems(parsed.items, catalog.items) }
+  const counts = game === 'MR'
+    ? resolved.rpcItems.map(({ quantity, ...identity }) => ({ ...identity, counted_stock: quantity }))
+    : resolved.items.map(({ item, quantity }) => ({ item_id: item.id, counted_stock: quantity }))
+  const payload = {
+    p_counts: counts,
     p_event_at: message.createdAt.toISOString(),
     p_notes: `Recorded automatically from Discord stocktake message ${message.id}`,
     p_request_id: requestId,
-  })
+  }
+  const result = game === 'MR'
+    ? await reconcileMRStockBundle(supabase, payload)
+    : await reconcileStockBundle(supabase, payload)
 
   if (isDuplicateRpcResult(result)) {
     await warnAlreadyRecorded(message, { isEdit: false, recordKind: 'record', stockRecord: true })
@@ -353,7 +389,7 @@ async function processStockReconciliation(message, parsed, requestId) {
 
   let lines = []
   try {
-    const events = await loadInventoryEvents(supabase, requestId)
+    const events = await loadInventoryEvents(supabase, requestId, game)
     lines = buildStockReconciliationResults(events).map(formatStockReconciliationLine)
   } catch (error) {
     console.error(
@@ -364,7 +400,7 @@ async function processStockReconciliation(message, parsed, requestId) {
   await safeReply(message, [
     '✅ Stock reconciled',
     '',
-    ...(lines.length > 0 ? lines : ['Result breakdown unavailable; check the RAR tracker.']),
+    ...(lines.length > 0 ? lines : [`Result breakdown unavailable; check the ${game} tracker.`]),
   ].join('\n'))
 }
 
@@ -374,7 +410,10 @@ async function processHelpInteraction(interaction) {
   try {
     const topic = interaction.options.getString('topic') || 'overview'
     const itemNames = topic === 'items'
-      ? (await loadActiveItems(supabase)).map((item) => item.name)
+      ? {
+          RAR: (await loadActiveItems(supabase)).map((item) => item.name),
+          MR: (await loadMRActiveItems(supabase)).map((item) => item.name),
+        }
       : []
     const pages = buildHelpPages(topic, itemNames)
 
@@ -384,7 +423,7 @@ async function processHelpInteraction(interaction) {
     }
   } catch (error) {
     console.error(`/help failed: ${safeErrorMessage(error)}`)
-    await interaction.editReply({ content: 'Could not load RAR help. Check the bot console and try again.', embeds: [] })
+    await interaction.editReply({ content: 'Could not load bot help. Check the bot console and try again.', embeds: [] })
   }
 }
 
@@ -392,8 +431,8 @@ async function warnAlreadyRecorded(message, { isEdit, recordKind, stockRecord = 
   if (isEdit) {
     if (warnedEditedMessages.has(message.id)) return
     const guidance = stockRecord
-      ? 'Make corrections through the RAR tracker or post a new stock record.'
-      : 'Make corrections through the RAR tracker instead.'
+      ? 'Make corrections through the tracker or post a new stock record.'
+      : 'Make corrections through the tracker instead.'
     const replied = await safeReply(message, `⚠️ This record was already processed.\n${guidance}`)
     if (replied) warnedEditedMessages.add(message.id)
     return
@@ -407,7 +446,7 @@ function userFacingError(error, operation) {
     return `Unknown item: ${error.itemName}\nUse /help with the Valid item names topic.`
   }
   if (error instanceof AmbiguousItemError) return error.message
-  if (error instanceof DuplicateItemError) return `${error.itemName} can appear only once in RAR STOCK.`
+  if (error instanceof DuplicateItemError) return `${error.itemName} can appear only once in STOCK.`
   if (error instanceof InsufficientStockError) {
     return insufficientStockText(error.itemName, error.required, error.available)
   }
@@ -445,8 +484,8 @@ function insufficientStockText(itemName, required, available) {
 
 function saleConfirmation({ parsed, platform, resolvedItems }) {
   return [
-    '✅ Sale recorded',
-    `${platform.name} • $${parsed.netCredit.toFixed(2)} net • $${parsed.platformFee.toFixed(2)} fee`,
+    `✅ ${parsed.game} sale recorded`,
+    `${platform.name} • ${parsed.currency} ${formatMoney(parsed.netCredit)} net • ${parsed.currency} ${formatMoney(parsed.platformFee)} fee`,
     itemSummary(resolvedItems),
   ].join('\n')
 }
@@ -521,6 +560,7 @@ function readConfig(environment) {
     'DISCORD_GUILD_ID',
     'DISCORD_SALES_CHANNEL_ID',
     'DISCORD_ACQUISITION_CHANNEL_ID',
+    'DISCORD_MR_OPERATIONS_CHANNEL_ID',
     'SUPABASE_URL',
     'SUPABASE_ANON_KEY',
     'SUPABASE_EMAIL',
@@ -530,8 +570,13 @@ function readConfig(environment) {
   if (missing.length > 0) throw new Error(`Missing required environment variables: ${missing.join(', ')}`)
 
   const values = Object.fromEntries(required.map((name) => [name, environment[name].trim()]))
-  if (values.DISCORD_SALES_CHANNEL_ID === values.DISCORD_ACQUISITION_CHANNEL_ID) {
-    throw new Error('DISCORD_SALES_CHANNEL_ID and DISCORD_ACQUISITION_CHANNEL_ID must be different.')
+  const channelIds = [
+    values.DISCORD_SALES_CHANNEL_ID,
+    values.DISCORD_ACQUISITION_CHANNEL_ID,
+    values.DISCORD_MR_OPERATIONS_CHANNEL_ID,
+  ]
+  if (new Set(channelIds).size !== channelIds.length) {
+    throw new Error('Sales, RAR acquisition, and MR operations channel IDs must be different.')
   }
   return values
 }
@@ -546,8 +591,11 @@ async function start() {
     password: config.SUPABASE_PASSWORD,
   })
 
-  const catalog = await loadCatalog(supabase)
-  console.log(`Supabase authenticated. Loaded ${catalog.items.length} items and ${catalog.platforms.length} platforms.`)
+  const [rarCatalog, mrCatalog] = await Promise.all([loadCatalog(supabase), loadMRCatalog(supabase)])
+  console.log(
+    `Supabase authenticated. Loaded ${rarCatalog.items.length} RAR items, ${mrCatalog.items.length} MR items, `
+      + `${mrCatalog.setFamilies.length} confirmed MR set families, and ${rarCatalog.platforms.length} platforms.`,
+  )
 
   try {
     await client.login(config.DISCORD_BOT_TOKEN)

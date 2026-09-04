@@ -1,11 +1,12 @@
 import { SlashCommandBuilder } from 'discord.js'
 import { HELP_TOPICS } from './help.js'
+import { GAME_CHOICES } from './games.js'
 
 export function buildGuildCommandDefinitions() {
   return [
     new SlashCommandBuilder()
       .setName('help')
-      .setDescription('Show RAR bot formats and live item names')
+      .setDescription('Show RAR and MR bot formats and live item names')
       .addStringOption((option) => option
         .setName('topic')
         .setDescription('Choose a help topic')
@@ -14,7 +15,12 @@ export function buildGuildCommandDefinitions() {
       .toJSON(),
     new SlashCommandBuilder()
       .setName('stock')
-      .setDescription('View live RAR inventory without changing it')
+      .setDescription('View one game inventory without changing it')
+      .addStringOption((option) => option
+        .setName('game')
+        .setDescription('Choose RAR or MR; defaults to RAR')
+        .setRequired(false)
+        .addChoices(...GAME_CHOICES))
       .addStringOption((option) => option
         .setName('item')
         .setDescription('View one active item by its canonical name')
@@ -23,7 +29,12 @@ export function buildGuildCommandDefinitions() {
       .toJSON(),
     new SlashCommandBuilder()
       .setName('monthly')
-      .setDescription('View a private monthly RAR financial report')
+      .setDescription('View a private monthly RAR or MR financial report')
+      .addStringOption((option) => option
+        .setName('game')
+        .setDescription('Choose RAR or MR; defaults to RAR')
+        .setRequired(false)
+        .addChoices(...GAME_CHOICES))
       .addStringOption((option) => option
         .setName('month')
         .setDescription('Malaysia-calendar month in YYYY-MM format')
@@ -34,6 +45,11 @@ export function buildGuildCommandDefinitions() {
     new SlashCommandBuilder()
       .setName('months')
       .setDescription('View private profit history for every recorded month')
+      .addStringOption((option) => option
+        .setName('game')
+        .setDescription('Choose RAR or MR; defaults to RAR')
+        .setRequired(false)
+        .addChoices(...GAME_CHOICES))
       .toJSON(),
   ]
 }

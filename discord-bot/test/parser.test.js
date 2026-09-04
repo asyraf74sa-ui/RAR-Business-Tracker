@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { isSaleMessage, parseSaleMessage, SaleParseError } from '../src/parser.js'
+import { detectSaleGame, isSaleMessage, parseSaleMessage, SaleParseError } from '../src/parser.js'
 
 test('classifies only sale headers as sales messages', () => {
   assert.equal(isSaleMessage('RAR - 1 PIANO\n10 US\n1 US TAX\nZEUSX'), true)
@@ -9,6 +9,32 @@ test('classifies only sale headers as sales messages', () => {
   assert.equal(isSaleMessage('RAR TRADE\nGIVE - 1 PIANO\nRECEIVE - 1 GEMS'), false)
   assert.equal(isSaleMessage('RAR ADD - 5 HOST STATION'), false)
   assert.equal(isSaleMessage('RAR STOCK - 17 HOST STATION'), false)
+  assert.equal(isSaleMessage('MR - 1 ITEM\n10 US\n0 US TAX\nPAYPAL'), true)
+  assert.equal(detectSaleGame('MR - 1 ITEM'), 'MR')
+})
+
+test('parses MR PayPal and TNG sales with zero or nonzero explicit fees', () => {
+  const paypal = parseSaleMessage('MR - 1 TEST ITEM\n8.00 US\n0.50 US TAX\npaypal')
+  assert.equal(paypal.game, 'MR')
+  assert.equal(paypal.platform, 'PayPal')
+  assert.equal(paypal.platformFee, 0.5)
+
+  const tng = parseSaleMessage("MR - 1 TEST ITEM\n35 MYR\n0 MYR TAX\nTouch 'n Go eWallet")
+  assert.equal(tng.currency, 'MYR')
+  assert.equal(tng.platform, 'TNG')
+  assert.equal(tng.platformFee, 0)
+})
+
+test('PayPal and TNG also remain valid for RAR sales', () => {
+  assert.equal(parseSaleMessage('RAR - 1 PIANO\n25 US\n0 US TAX\nPAYPAL').platform, 'PayPal')
+  assert.equal(parseSaleMessage('RAR - 1 PIANO\n50 MYR\n1 MYR TAX\nTNG eWallet').platform, 'TNG')
+})
+
+test('sale parser rejects mixed currencies instead of converting them', () => {
+  assert.throws(
+    () => parseSaleMessage('MR - 1 TEST ITEM\n25 USD\n1 MYR TAX\nPAYPAL'),
+    /same currency/i,
+  )
 })
 
 test('parses a Gems sale', () => {

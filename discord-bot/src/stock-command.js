@@ -1,5 +1,6 @@
 import { MessageFlags } from 'discord.js'
-import { loadActiveItems } from './supabase.js'
+import { normalizeGame } from './games.js'
+import { loadActiveItems, loadMRActiveItems, loadMRSetStockSummaries } from './supabase.js'
 import {
   buildStockAutocompleteChoices,
   buildStockItemPage,
@@ -9,11 +10,16 @@ import {
 
 const STOCK_LOAD_TIMEOUT_MS = 10_000
 const AUTOCOMPLETE_TIMEOUT_MS = 2_000
-const STOCK_LOAD_ERROR = '❌ Could not load RAR stock.\nPlease try again.'
 
 export async function processStockInteraction(
   interaction,
-  { supabase, loadItems = loadActiveItems, logger = console, timeoutMs = STOCK_LOAD_TIMEOUT_MS },
+  {
+    supabase,
+    loadItems = null,
+    loadSetSummaries = loadMRSetStockSummaries,
+    logger = console,
+    timeoutMs = STOCK_LOAD_TIMEOUT_MS,
+  },
 ) {
   try {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral })
@@ -23,7 +29,12 @@ export async function processStockInteraction(
   }
 
   try {
-    const items = await withTimeout(loadItems(supabase), timeoutMs, 'RAR stock request timed out.')
+    const game = selectedGame(interaction)
+    const itemLoader = loadItems || (game === 'MR' ? loadMRActiveItems : loadActiveItems)
+    const [items, setSummaries] = await withTimeout(Promise.all([
+      itemLoader(supabase, game),
+      game === 'MR' ? loadSetSummaries(supabase) : Promise.resolve([]),
+    ]), timeoutMs, `${game} stock request timed out.`)
     const requestedName = interaction.options.getString('item')
 
     if (requestedName) {
@@ -33,11 +44,11 @@ export async function processStockInteraction(
         return true
       }
 
-      await interaction.editReply({ embeds: [buildStockItemPage(item)] })
+      await interaction.editReply({ embeds: [buildStockItemPage(item, { game })] })
       return true
     }
 
-    const pages = buildStockOverviewPages(items)
+    const pages = buildStockOverviewPages(items, { game, setSummaries })
     await interaction.editReply({ embeds: [pages[0]] })
     for (const page of pages.slice(1)) {
       await interaction.followUp({ embeds: [page], flags: MessageFlags.Ephemeral })
@@ -46,7 +57,10 @@ export async function processStockInteraction(
   } catch (error) {
     logger.error?.(`/stock failed: ${safeErrorMessage(error)}`)
     try {
-      await interaction.editReply({ content: STOCK_LOAD_ERROR, embeds: [] })
+      await interaction.editReply({
+        content: `❌ Could not load ${selectedGame(interaction)} stock.\nPlease try again.`,
+        embeds: [],
+      })
     } catch (replyError) {
       logger.error?.(`/stock error response failed: ${safeErrorMessage(replyError)}`)
     }
@@ -56,10 +70,12 @@ export async function processStockInteraction(
 
 export async function processStockAutocompleteInteraction(
   interaction,
-  { supabase, loadItems = loadActiveItems, logger = console, timeoutMs = AUTOCOMPLETE_TIMEOUT_MS },
+  { supabase, loadItems = null, logger = console, timeoutMs = AUTOCOMPLETE_TIMEOUT_MS },
 ) {
   try {
-    const items = await withTimeout(loadItems(supabase), timeoutMs, 'RAR stock autocomplete timed out.')
+    const game = selectedGame(interaction)
+    const itemLoader = loadItems || (game === 'MR' ? loadMRActiveItems : loadActiveItems)
+    const items = await withTimeout(itemLoader(supabase, game), timeoutMs, `${game} stock autocomplete timed out.`)
     const choices = buildStockAutocompleteChoices(items, interaction.options.getFocused())
     await interaction.respond(choices)
     return true
@@ -72,6 +88,10 @@ export async function processStockAutocompleteInteraction(
     }
     return false
   }
+}
+
+function selectedGame(interaction) {
+  return normalizeGame(interaction.options.getString?.('game'))
 }
 
 async function withTimeout(promise, timeoutMs, message) {

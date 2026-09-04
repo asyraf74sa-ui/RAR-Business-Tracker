@@ -1,3 +1,5 @@
+import { canonicalPlatformName } from './platforms.js'
+
 const TOKEN_ALIASES = new Map([
   ['dino', 'dinosaur'],
 ])
@@ -122,8 +124,11 @@ export function validateOutgoingStock(resolved) {
 }
 
 export function resolvePlatform(platformName, platforms) {
-  const target = normalizeName(platformName)
-  const matches = platforms.filter((platform) => platform.active !== false && normalizeName(platform.name) === target)
+  const target = canonicalPlatformName(platformName)
+  if (!target) throw new UnknownPlatformError(platformName)
+  const matches = platforms.filter(
+    (platform) => platform.active !== false && canonicalPlatformName(platform.name) === target,
+  )
   if (matches.length !== 1) throw new UnknownPlatformError(platformName)
   return matches[0]
 }

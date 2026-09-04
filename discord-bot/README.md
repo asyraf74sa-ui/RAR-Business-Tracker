@@ -1,9 +1,10 @@
-# RAR Discord bot
+# RAR + MR Discord bot
 
-This folder contains the always-on Windows bot for the existing RAR Business Tracker. It keeps sales and inventory-acquisition messages in separate Discord channels and uses authenticated Supabase RPCs for atomic database changes.
+This folder contains the always-on Windows bot for Run A Restaurant (RAR) and My Restaurant (MR). The two games use isolated inventories and financial tables while sharing the authenticated bot session and Sales Record channel.
 
-- The **sales channel** accepts only `RAR - ...` sales. Existing sale behavior and duplicate IDs are preserved.
-- The **acquisition channel** accepts purchases, farm claims, in-game trades, manual additions, and exact stocktakes. Sale messages in this channel are ignored.
+- The **shared sales channel** accepts `RAR - ...` and `MR - ...`; the prefix selects the game.
+- The existing **RAR acquisition channel** continues to accept RAR purchases, farm claims, trades, additions, and stocktakes.
+- The new **MR Operations channel** accepts only `MR PURCHASE`, `MR TRADE`, `MR ADD`, and `MR STOCK`.
 - `/help`, `/stock`, `/monthly`, and `/months` are registered as server commands and respond privately. Stock and financial reports refresh authenticated data from Supabase whenever they run.
 
 Every accepted Discord message gets a deterministic request UUID. Retrying a message cannot create a duplicate operation. Editing a recorded message does not rewrite history; the bot tells you to correct it through the RAR tracker.
@@ -27,7 +28,7 @@ In the [Discord Developer Portal](https://discord.com/developers/applications):
 4. Invite the bot with the `bot` and `applications.commands` scopes. Give it permission to view both configured channels, read message history, send messages, and use application commands.
 5. In Discord, enable **User Settings > Advanced > Developer Mode**.
 6. Right-click the server and choose **Copy Server ID**.
-7. Right-click the sales channel and the separate acquisition channel and choose **Copy Channel ID** for each.
+7. Create or choose three separate channels: Sales Record, RAR acquisitions, and MR Operations. Right-click each and choose **Copy Channel ID**.
 
 ## 3. Install dependencies
 
@@ -50,6 +51,7 @@ DISCORD_BOT_TOKEN=your_discord_bot_token
 DISCORD_GUILD_ID=your_server_id
 DISCORD_SALES_CHANNEL_ID=your_sales_channel_id
 DISCORD_ACQUISITION_CHANNEL_ID=your_separate_acquisition_channel_id
+DISCORD_MR_OPERATIONS_CHANNEL_ID=your_mr_operations_channel_id
 
 SUPABASE_URL=https://aiufjjedsgatmnhocxyz.supabase.co
 SUPABASE_ANON_KEY=sb_publishable_izEtafPfqUazScWRmBfocw_acP5teS7
@@ -57,11 +59,11 @@ SUPABASE_EMAIL=your_normal_supabase_login_email
 SUPABASE_PASSWORD=your_normal_supabase_login_password
 ```
 
-The two channel IDs must be different. Use the normal Supabase account that owns the RAR tracker data; never add a service-role key. `.env` is ignored by Git, so tokens, passwords, and sessions remain local.
+All three channel IDs must be different. Use the normal Supabase account that owns the tracker data; never add a service-role key. `.env` is ignored by Git, so tokens, passwords, and sessions remain local.
 
-## 5. Apply the acquisition migration
+## 5. Apply the database migrations
 
-The repository migrations `supabase/migrations/20260902054745_discord_acquisition_operations.sql` and `supabase/migrations/20260902064501_discord_manual_add.sql` provide the new atomic RPCs. Exact stocktakes reuse the existing `rar_reconcile_stock_batch` RPC. Apply repository migrations to the same Supabase project before starting this version of the bot. The migrations preserve existing rows, sale behavior, and farm configuration.
+Apply all repository migrations to the same Supabase project before starting the bot. `20260904101125_mr_phase1_backend_bot.sql` adds the isolated MR tables/RPCs, furniture-set metadata, and PayPal/TNG platform support without seeding MR catalog items or changing existing business records.
 
 ## 6. Test and start
 
@@ -80,14 +82,15 @@ You can also double-click `start-bot.bat`. On startup, the bot idempotently regi
 Run `/monthly` for the current Malaysia-calendar month, or select a strict `YYYY-MM` month:
 
 ```text
-/monthly
-/monthly month:2026-09
+/monthly game:RAR
+/monthly game:MR month:2026-09
 ```
 
 Run `/months` for every month containing at least one sale or cash supplier purchase, newest first:
 
 ```text
-/months
+/months game:RAR
+/months game:MR
 ```
 
 All financial responses are private. Each report keeps USD, MYR, PHP, and IDR separate; currencies are never mixed, converted, or combined into a fake grand total.
@@ -105,7 +108,8 @@ Reports use `Asia/Kuala_Lumpur` calendar-month boundaries (`>=` month start and 
 Run this slash command from any server channel to view all current active inventory, including Gems and zero-stock items:
 
 ```text
-/stock
+/stock game:RAR
+/stock game:MR
 ```
 
 To view one canonical item only:
@@ -118,7 +122,7 @@ The response is private and refreshed from Supabase each time. `/stock` = **VIEW
 
 ### Sales and acquisition messages
 
-Post sales only in the sales channel:
+Post RAR or MR sales only in the shared Sales Record channel:
 
 ```text
 RAR - 3,000 GEMS, 1 PIANO
@@ -126,6 +130,15 @@ RAR - 3,000 GEMS, 1 PIANO
 1.38 US TAX
 ZEUSX
 ```
+
+```text
+MR - 1 ITEM NAME
+35 MYR
+0 MYR TAX
+Touch 'n Go eWallet
+```
+
+Recognized canonical platforms are Eldorado, ZeusX, Gameflip, PlayerAuctions, G2G, Itemku, PayPal, TNG, and Direct. PayPal spelling is normalized to `PayPal`; `TNG`, `TNG eWallet`, `Touch n Go`, `Touch 'n Go`, and `Touch 'n Go eWallet` normalize to `TNG`. The supplied fee may be zero or nonzero; the bot never invents it.
 
 Post these only in the acquisition channel.
 
@@ -178,6 +191,24 @@ If Host Station is currently 10, `RAR STOCK - 5 HOST STATION` sets it to exactly
 
 ADD and STOCK bundles are atomic: an invalid item or quantity rejects the entire message without a partial inventory change. Both use the Discord timestamp and a deterministic operation-specific request ID, so the same message cannot change stock twice.
 
+### MR Operations channel
+
+Use the same operation shapes with the `MR` prefix in the separate MR Operations channel:
+
+```text
+MR PURCHASE - 5 ITEM A, 2 ITEM B
+25 USD
+
+MR TRADE
+GIVE - 1 ITEM A
+RECEIVE - 2 ITEM B
+
+MR ADD - 5 ITEM A, 3 ITEM B
+MR STOCK - 17 ITEM A, 0 ITEM B
+```
+
+MR has no FARM command. MR set aliases are accepted only after a confirmed family and its aliases have been configured in `mr_set_families`; each set expands atomically to one table plus four chairs. No production MR catalog or set family is seeded by this phase.
+
 Names are matched case-insensitively, with basic singular/plural handling and the `Dino Fossil` alias for `Dinosaur Fossil`. Unknown or ambiguous items reject the whole operation. If any GIVE item has insufficient stock, nothing is changed and the reply shows the item, required quantity, and available quantity.
 
 Run `/help` anywhere in the configured server. Choose **Monthly financial reports** for the accounting formula, **Stock overview (read only)** for `/stock`, or **Valid item names** for canonical item names. Long catalogs, stock overviews, and financial histories are split across private embed messages within Discord limits.
@@ -198,7 +229,7 @@ The PC must remain powered on, online, and signed in.
 
 ## Troubleshooting
 
-- **Missing environment variables:** confirm the file is named `.env`, not `.env.txt`, and includes the guild and both channel IDs.
+- **Missing environment variables:** confirm the file is named `.env`, not `.env.txt`, and includes the guild and all three channel IDs.
 - **A slash command is missing:** confirm the bot was invited with `applications.commands`, the guild ID is correct, and the startup console says `/help`, `/stock`, `/monthly`, and `/months` are ready.
 - **Messages are ignored:** confirm you used the correct format in the correct channel and enabled Message Content Intent.
 - **Unknown item:** run `/help` with the **Valid item names** topic and copy a canonical active name.

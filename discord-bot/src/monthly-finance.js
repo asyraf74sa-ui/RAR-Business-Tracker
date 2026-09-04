@@ -63,6 +63,16 @@ export function aggregateFinancialRecords(
     totals.actualWalletCredit = addDecimalAmounts(totals.actualWalletCredit, sale.net_credit)
     totals.platformTax = addDecimalAmounts(totals.platformTax, sale.platform_fee)
     report.salesCount += 1
+    const platform = String(sale.platform || '').trim()
+    if (platform) {
+      const platformTotals = report.platforms[platform] || (report.platforms[platform] = {})
+      const currencyTotals = platformTotals[currency] || (platformTotals[currency] = {
+        actualWalletCredit: '0',
+        platformTax: '0',
+      })
+      currencyTotals.actualWalletCredit = addDecimalAmounts(currencyTotals.actualWalletCredit, sale.net_credit)
+      currencyTotals.platformTax = addDecimalAmounts(currencyTotals.platformTax, sale.platform_fee)
+    }
   }
 
   inventoryEvents.forEach((event, index) => {
@@ -114,7 +124,7 @@ export function formatCurrencyAmount(value, currency, { showPositiveSign = false
   return `${sign}${format.symbol}${grouped}${fraction ? `.${fraction}` : ''}`
 }
 
-export function buildMonthlyOverviewPage(report) {
+export function buildMonthlyOverviewPage(report, { game = 'RAR' } = {}) {
   const sections = FINANCIAL_CURRENCIES.map((currency) => {
     const totals = report.currencies[currency]
     return [
@@ -127,7 +137,7 @@ export function buildMonthlyOverviewPage(report) {
   })
 
   return {
-    title: '📊 RAR Monthly Overview',
+    title: `📊 ${game} Monthly Overview`,
     description: [
       `**${monthLabel(report.month)}**`,
       ...sections,
@@ -141,7 +151,7 @@ export function buildMonthlyOverviewPage(report) {
 
 export function buildMonthlyHistoryPages(
   reports,
-  { maxDescriptionLength = EMBED_DESCRIPTION_LIMIT } = {},
+  { maxDescriptionLength = EMBED_DESCRIPTION_LIMIT, game = 'RAR' } = {},
 ) {
   if (!Number.isInteger(maxDescriptionLength) || maxDescriptionLength < 1 || maxDescriptionLength > 4096) {
     throw new RangeError('History embed description limit must be between 1 and 4096 characters.')
@@ -158,8 +168,8 @@ export function buildMonthlyHistoryPages(
 
   return descriptions.map((description, index) => ({
     title: descriptions.length === 1
-      ? '📅 RAR Profit History'
-      : `📅 RAR Profit History (${index + 1}/${descriptions.length})`,
+      ? `📅 ${game} Profit History`
+      : `📅 ${game} Profit History (${index + 1}/${descriptions.length})`,
     description,
     color: EMBED_COLOR,
     footer: { text: 'Currencies remain separate; no conversion or combined total' },
@@ -234,6 +244,7 @@ function createMonthReport(month) {
     }])),
     salesCount: 0,
     purchaseTransactionKeys: new Set(),
+    platforms: {},
   }
 }
 
@@ -254,6 +265,7 @@ function finalizeMonthReport(report) {
     })),
     salesCount: report.salesCount,
     purchaseTransactions: report.purchaseTransactionKeys.size,
+    platforms: report.platforms,
   }
 }
 
