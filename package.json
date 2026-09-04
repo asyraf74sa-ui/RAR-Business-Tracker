@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test test/dashboard-finance.test.js test/fx-client.test.js test/fx-endpoint.test.js",
+    "test": "node --test test/dashboard-finance.test.js test/fx-client.test.js test/fx-endpoint.test.js test/supabase-pagination.test.js",
     "check": "npm run test && npm run build"
   },
   "dependencies": {

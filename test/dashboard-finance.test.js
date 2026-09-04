@@ -2,9 +2,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   BUSINESS_TIME_ZONE,
+  compareUsdTotals,
   convertCurrencyTotalsToUsd,
   currentMonthFinancials,
   malaysiaMonthPeriod,
+  monthlyFinancialHistory,
+  walletFinancialOverview,
 } from '../src/lib/dashboard-finance.js'
 
 function sale(id, soldAt, currency, netCredit, platformFee = 0) {
@@ -111,5 +114,120 @@ test('financial calculations do not mutate production-shaped input rows', () => 
   const snapshot = structuredClone(rows)
   const result = currentMonthFinancials(rows, new Date('2026-09-15T00:00:00.000Z'))
   convertCurrencyTotalsToUsd(result.netTotals, { PHP: 60 })
+  assert.deepEqual(rows, snapshot)
+})
+
+test('summarizes current, previous, and lifetime net wallet credit', () => {
+  const rows = [
+    sale('july', '2026-07-12T02:00:00.000Z', 'USD', 25, 5),
+    sale('august', '2026-08-15T02:00:00.000Z', 'MYR', 400, 20),
+    sale('september', '2026-09-15T02:00:00.000Z', 'PHP', 6_000, 300),
+  ]
+  const result = walletFinancialOverview(
+    rows,
+    { USD: 1, MYR: 4, PHP: 60, IDR: 15_000 },
+    new Date('2026-09-20T00:00:00.000Z'),
+  )
+
+  assert.equal(result.current.period.key, '2026-09')
+  assert.equal(result.current.usd.total, 100)
+  assert.equal(result.previous.period.key, '2026-08')
+  assert.equal(result.previous.usd.total, 100)
+  assert.deepEqual(result.lifetime.netTotals, { USD: 25, MYR: 400, PHP: 6_000, IDR: 0 })
+  assert.equal(result.lifetime.usd.total, 225)
+  assert.equal(result.comparison.status, 'comparable')
+  assert.equal(result.comparison.percent, 0)
+})
+
+test('creates a continuous newest-first month history with empty gaps', () => {
+  const rows = [
+    sale('july', '2026-07-10T00:00:00.000Z', 'USD', 10),
+    sale('september', '2026-09-10T00:00:00.000Z', 'USD', 30),
+  ]
+  const months = monthlyFinancialHistory(rows, new Date('2026-09-15T00:00:00.000Z'))
+
+  assert.deepEqual(months.map(({ period }) => period.key), ['2026-09', '2026-08', '2026-07'])
+  assert.deepEqual(months.map(({ netTotals }) => netTotals.USD), [30, 0, 10])
+  assert.equal(months[1].sales.length, 0)
+})
+
+test('always includes an empty brand-new current month and rolls previous automatically', () => {
+  const rows = [sale('september', '2026-09-30T15:59:59.999Z', 'USD', 45)]
+  const september = walletFinancialOverview(rows, { USD: 1 }, new Date('2026-09-30T15:59:59.999Z'))
+  const october = walletFinancialOverview(rows, { USD: 1 }, new Date('2026-09-30T16:00:00.000Z'))
+
+  assert.equal(september.current.period.key, '2026-09')
+  assert.equal(september.current.usd.total, 45)
+  assert.equal(october.current.period.key, '2026-10')
+  assert.equal(october.current.usd.total, 0)
+  assert.equal(october.previous.period.key, '2026-09')
+  assert.equal(october.previous.usd.total, 45)
+  assert.deepEqual(october.months.map(({ period }) => period.key), ['2026-10', '2026-09'])
+})
+
+test('keeps every supported currency authoritative and converts lifetime totals once', () => {
+  const rows = [
+    sale('usd', '2026-07-10T00:00:00.000Z', 'USD', 100),
+    sale('myr', '2026-07-11T00:00:00.000Z', 'MYR', 400),
+    sale('php', '2026-08-10T00:00:00.000Z', 'PHP', 6_000),
+    sale('idr', '2026-09-10T00:00:00.000Z', 'IDR', 1_500_000),
+  ]
+  const result = walletFinancialOverview(
+    rows,
+    { USD: 1, MYR: 4, PHP: 60, IDR: 15_000 },
+    new Date('2026-09-15T00:00:00.000Z'),
+  )
+
+  assert.deepEqual(result.lifetime.netTotals, {
+    USD: 100,
+    MYR: 400,
+    PHP: 6_000,
+    IDR: 1_500_000,
+  })
+  assert.equal(result.lifetime.usd.total, 400)
+})
+
+test('does not invent percentage growth when previous month is zero', () => {
+  assert.deepEqual(compareUsdTotals(50, 0), {
+    amount: 50,
+    percent: null,
+    status: 'no-baseline',
+  })
+  assert.deepEqual(compareUsdTotals(0, 0), {
+    amount: 0,
+    percent: null,
+    status: 'no-activity',
+  })
+})
+
+test('keeps USD-only reporting available when FX is unavailable', () => {
+  const usdOnly = walletFinancialOverview(
+    [sale('usd', '2026-09-10T00:00:00.000Z', 'USD', 75)],
+    undefined,
+    new Date('2026-09-15T00:00:00.000Z'),
+  )
+  const foreign = walletFinancialOverview(
+    [sale('myr', '2026-09-10T00:00:00.000Z', 'MYR', 300)],
+    undefined,
+    new Date('2026-09-15T00:00:00.000Z'),
+  )
+
+  assert.equal(usdOnly.current.usd.total, 75)
+  assert.equal(usdOnly.lifetime.usd.total, 75)
+  assert.equal(foreign.current.usd.total, null)
+  assert.deepEqual(foreign.current.usd.unavailableCurrencies, ['MYR'])
+  assert.equal(foreign.comparison.status, 'unavailable')
+})
+
+test('ignores future months without deleting or mutating their source rows', () => {
+  const rows = [
+    sale('current', '2026-09-10T00:00:00.000Z', 'USD', 10),
+    sale('future', '2026-10-10T00:00:00.000Z', 'USD', 20),
+  ]
+  const snapshot = structuredClone(rows)
+  const result = walletFinancialOverview(rows, { USD: 1 }, new Date('2026-09-15T00:00:00.000Z'))
+
+  assert.equal(result.lifetime.usd.total, 10)
+  assert.deepEqual(result.months.map(({ period }) => period.key), ['2026-09'])
   assert.deepEqual(rows, snapshot)
 })

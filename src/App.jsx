@@ -13,6 +13,7 @@ import SalesHistory from './pages/SalesHistory.jsx'
 import Settings from './pages/Settings.jsx'
 import { DEFAULT_PLATFORMS, INITIAL_ITEMS } from './lib/constants.js'
 import { readableError, supabase } from './lib/supabase.js'
+import { selectAllRows } from './lib/supabase-pagination.js'
 
 const emptyData = {
   items: [],
@@ -71,7 +72,7 @@ export default function App() {
       const requests = await Promise.all([
         supabase.from('rar_items').select('*').order('name'),
         supabase.from('rar_platforms').select('*').order('name'),
-        supabase.from('rar_sales').select('*').order('sold_at', { ascending: false }).limit(1000),
+        selectAllRows(() => supabase.from('rar_sales').select('*').order('sold_at', { ascending: false })),
         supabase.from('rar_sale_items').select('*').order('created_at', { ascending: false }).limit(5000),
         supabase.from('rar_inventory_events').select('*').order('event_at', { ascending: false }).limit(3000),
         supabase.from('rar_farm_config').select('*').maybeSingle(),

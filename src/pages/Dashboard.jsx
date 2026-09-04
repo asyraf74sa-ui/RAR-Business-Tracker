@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowRight,
   Boxes,
+  CalendarRange,
   CalendarClock,
   Gem,
   Gauge,
+  Landmark,
   Leaf,
   PackageOpen,
   Percent,
@@ -12,15 +14,15 @@ import {
   ReceiptText,
   Sprout,
   TrendingUp,
+  WalletCards,
 } from 'lucide-react'
 import { Button, EmptyState, SectionHeading, StatusBadge } from '../components/ui.jsx'
 import { CURRENCIES } from '../lib/constants.js'
 import {
   BUSINESS_TIME_ZONE,
-  convertCurrencyTotalsToUsd,
-  currentMonthFinancials,
   malaysiaHour,
   malaysiaMonthPeriod,
+  walletFinancialOverview,
 } from '../lib/dashboard-finance.js'
 import { formatDateTime, formatMoney, formatQuantity, toNumber } from '../lib/format.js'
 import { fxClient } from '../lib/fx-client.js'
@@ -61,6 +63,28 @@ function updatedAgo(value, now) {
   }).format(new Date(timestamp))
 }
 
+function UsdEquivalent({ conversion, compact = false }) {
+  const unavailable = conversion.total == null
+  return (
+    <span className={`usd-equivalent ${compact ? 'usd-equivalent--compact' : ''} ${unavailable ? 'is-unavailable' : ''}`}>
+      {conversion.approximate && !unavailable && <i aria-label="approximately">≈</i>}
+      <strong>{unavailable ? '—' : formatMoney(conversion.total, 'USD')}</strong>
+    </span>
+  )
+}
+
+function comparisonDetail(comparison, previousLabel) {
+  const previousMonth = previousLabel.split(' ')[0]
+  if (comparison.status === 'unavailable') return 'Comparison available when FX returns'
+  if (comparison.status === 'no-activity') return `No wallet credit in either month`
+  if (comparison.status === 'no-baseline') return `${previousMonth} was an empty month`
+  if (comparison.amount === 0) return `No change vs ${previousMonth}`
+
+  const direction = comparison.amount > 0 ? '+' : '−'
+  const percent = Math.abs(comparison.percent).toFixed(1)
+  return `${direction}${formatMoney(Math.abs(comparison.amount), 'USD')} · ${direction}${percent}% vs ${previousMonth}`
+}
+
 export default function Dashboard({ data, onNavigate }) {
   const { items, sales, saleItems, inventoryEvents, farmConfig } = data
   const [selectedCurrency, setSelectedCurrency] = useState('USD')
@@ -91,12 +115,12 @@ export default function Dashboard({ data, onNavigate }) {
   const physicalItems = items.filter((item) => item.kind === 'item')
   const activeFarmItems = physicalItems.filter((item) => item.is_farm_item && item.active)
   const itemMap = useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
-  const monthFinancials = useMemo(() => currentMonthFinancials(sales, dashboardNow), [sales, dashboardNow])
-  const { period, sales: currentMonthSales, netTotals, feeTotals, grossTotals, saleCountByCurrency } = monthFinancials
-  const combinedUsd = useMemo(
-    () => convertCurrencyTotalsToUsd(netTotals, fxState.data?.rates),
-    [netTotals, fxState.data],
+  const financialOverview = useMemo(
+    () => walletFinancialOverview(sales, fxState.data?.rates, dashboardNow),
+    [sales, fxState.data?.rates, dashboardNow],
   )
+  const { current, previous, lifetime, comparison, months: monthlyHistory } = financialOverview
+  const { period, sales: currentMonthSales, netTotals, feeTotals, grossTotals, saleCountByCurrency, usd: combinedUsd } = current
   const selectedSales = useMemo(
     () => currentMonthSales.filter((sale) => String(sale.currency).toUpperCase() === selectedCurrency),
     [currentMonthSales, selectedCurrency],
@@ -164,6 +188,7 @@ export default function Dashboard({ data, onNavigate }) {
       : fxState.data?.fallback
         ? `Using last FX rate · updated ${updatedAgo(fxState.data.updatedAt, dashboardNow)}`
         : `Live FX · updated ${updatedAgo(fxState.data.updatedAt, dashboardNow)}`
+  const monthComparison = comparisonDetail(comparison, previous.period.label)
 
   return (
     <div className="page-stack dashboard-page">
@@ -214,13 +239,53 @@ export default function Dashboard({ data, onNavigate }) {
         </section>
 
         <aside className="wallet-insights" aria-label={`${selectedCurrency} wallet at a glance`}>
-          <div className="wallet-insights__heading"><span>At a glance</span><strong>{selectedCurrency} · {period.label}</strong></div>
+          <div className="wallet-insights__heading"><span>Financial overview</span><strong>USD · CURRENT FX</strong></div>
+          <article className="period-summary period-summary--previous">
+            <span className="period-summary__icon"><CalendarRange size={19} /></span>
+            <div className="period-summary__body"><span>Previous month</span><small>{previous.period.label}</small><UsdEquivalent conversion={previous.usd} compact /><p>{monthComparison}</p></div>
+          </article>
+          <article className="period-summary period-summary--lifetime">
+            <span className="period-summary__icon"><WalletCards size={19} /></span>
+            <div className="period-summary__body"><span>Lifetime wallet credit</span><small>First recorded sale to now</small><UsdEquivalent conversion={lifetime.usd} compact /><p>Original currencies remain authoritative</p></div>
+          </article>
           <article className="support-metric support-metric--blue"><span className="support-metric__icon"><Percent size={20} /></span><div><span>Platform fees</span><strong>{formatMoney(feeTotals[selectedCurrency], selectedCurrency)}</strong><small>Current month · {selectedCurrency}</small></div></article>
           <article className="support-metric support-metric--green"><span className="support-metric__icon"><TrendingUp size={20} /></span><div><span>Gross sales</span><strong>{formatMoney(grossTotals[selectedCurrency], selectedCurrency)}</strong><small>Net received + fees</small></div></article>
           <article className="support-metric support-metric--purple"><span className="support-metric__icon"><Gem size={20} /></span><div><span>Gem balance</span><strong>{formatQuantity(gemItem?.stock || 0)}</strong><small>Live business asset</small></div></article>
           <article className="support-metric support-metric--gold"><span className="support-metric__icon"><PackageOpen size={20} /></span><div><span>Inventory units</span><strong>{formatQuantity(inventoryUnits)}</strong><small>Live · {physicalItems.filter((item) => item.active).length} active item types</small></div></article>
         </aside>
       </div>
+
+      <section className="monthly-wallet dashboard-surface" aria-labelledby="monthly-wallet-title">
+        <div className="monthly-wallet__heading">
+          <div><p className="eyebrow">Financial activity</p><h2 id="monthly-wallet-title">Monthly Wallet Credit</h2><p>Automatic Malaysia calendar months, newest first. USD equivalents use the latest available current FX rates.</p></div>
+          <span><Landmark size={16} />Asia/Kuala_Lumpur</span>
+        </div>
+        <div className="monthly-wallet__list">
+          {monthlyHistory.map((month, index) => {
+            const saleCount = CURRENCIES.reduce((sum, currency) => sum + month.saleCountByCurrency[currency], 0)
+            const recordedBalances = CURRENCIES.filter((currency) => toNumber(month.netTotals[currency]) !== 0)
+            return (
+              <article className={`monthly-wallet__row ${index === 0 ? 'is-current' : ''}`} key={month.period.key}>
+                <div className="monthly-wallet__identity">
+                  <span>{index === 0 ? 'Current month' : month.period.key}</span>
+                  <strong>{month.period.label}</strong>
+                  <small>{saleCount} {saleCount === 1 ? 'sale' : 'sales'}</small>
+                </div>
+                <div className="monthly-wallet__original" aria-label={`${month.period.label} original-currency balances`}>
+                  {recordedBalances.length === 0 ? <span>Empty month · no recorded sales</span> : recordedBalances.map((currency) => (
+                    <span key={currency}><small>{currency}</small><strong>{formatOriginalBalance(month.netTotals[currency], currency)}</strong></span>
+                  ))}
+                </div>
+                <div className="monthly-wallet__amount">
+                  <small>{month.usd.approximate ? 'USD equivalent · current FX' : 'USD net wallet credit'}</small>
+                  <UsdEquivalent conversion={month.usd} compact />
+                </div>
+              </article>
+            )
+          })}
+        </div>
+        <footer><span>≈ values are reporting estimates at current FX.</span><span>Original-currency sales are never rewritten.</span></footer>
+      </section>
 
       <section className="dashboard-surface dashboard-surface--performance">
         <section className="platform-performance">
