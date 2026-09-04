@@ -1,4 +1,5 @@
 import { LoaderCircle, Search, Sparkles, X } from 'lucide-react'
+import { createPortal } from 'react-dom'
 import { formatMoney, formatQuantity } from '../lib/format.js'
 import { CURRENCIES } from '../lib/constants.js'
 
@@ -128,7 +129,7 @@ export function StatusBadge({ children, tone = 'neutral' }) {
 
 export function Dialog({ open, title, description, onClose, children }) {
   if (!open) return null
-  return (
+  return createPortal(
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
         <div className="dialog__header">
@@ -140,6 +141,7 @@ export function Dialog({ open, title, description, onClose, children }) {
         </div>
         {children}
       </section>
-    </div>
+    </div>,
+    document.body,
   )
 }

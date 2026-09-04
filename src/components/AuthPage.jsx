@@ -54,8 +54,8 @@ export default function AuthPage({ onAuthenticate }) {
       <div className="auth-page__shape auth-page__shape--two" />
       <header className="auth-product">
         <div className="brand brand--product">
-          <span className="brand-mark" aria-hidden="true">R</span>
-          <div><strong>RAR Business Tracker</strong><span>Run a Restaurant</span></div>
+          <span className="brand-mark" aria-hidden="true">B</span>
+          <div><strong>Business Tracker</strong><span>RAR + My Restaurant</span></div>
         </div>
       </header>
 
@@ -63,9 +63,9 @@ export default function AuthPage({ onAuthenticate }) {
         <div className="auth-card">
           <div className="auth-card__heading">
             <span className="auth-card__icon"><WalletCards size={22} /></span>
-            <p className="eyebrow">Your restaurant back office</p>
+            <p className="eyebrow">Your unified business wallet</p>
             <h1>{mode === 'login' ? 'Welcome back' : 'Create your workspace'}</h1>
-            <p>{mode === 'login' ? 'Sign in to review your wallet, stock, Gems, and farm.' : 'Start a private workspace for your Run a Restaurant business.'}</p>
+            <p>{mode === 'login' ? 'Sign in to move between All Business, RAR, and MR.' : 'Start private, isolated workspaces for both restaurant businesses.'}</p>
           </div>
 
           <div className="auth-tabs" role="tablist" aria-label="Authentication mode">
@@ -95,9 +95,9 @@ export default function AuthPage({ onAuthenticate }) {
 
       <section className="auth-benefits" aria-label="Product benefits">
         <div><span><WalletCards size={19} /></span><p><strong>Clean wallet totals</strong><small>Every currency stays separate.</small></p></div>
-        <div><span><Boxes size={19} /></span><p><strong>Accurate inventory</strong><small>Each action moves stock once.</small></p></div>
+        <div><span><Boxes size={19} /></span><p><strong>Separate inventory</strong><small>RAR and MR stock never mix.</small></p></div>
         <div><span><Gem size={19} /></span><p><strong>Gem tracking</strong><small>Conversions stay connected.</small></p></div>
-        <div><span><Leaf size={19} /></span><p><strong>Farm forecasting</strong><small>Plan every production cycle.</small></p></div>
+        <div><span><Leaf size={19} /></span><p><strong>Native workspaces</strong><small>Financial view plus focused operations.</small></p></div>
       </section>
     </div>
   )

@@ -1,19 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, CheckCircle2, Info, RefreshCw, X } from 'lucide-react'
 import AuthPage from './components/AuthPage.jsx'
 import Shell from './components/Shell.jsx'
 import { Button, Card, LoadingScreen } from './components/ui.jsx'
-import Dashboard from './pages/Dashboard.jsx'
-import Farming from './pages/Farming.jsx'
-import Gems from './pages/Gems.jsx'
-import Inventory from './pages/Inventory.jsx'
-import Purchases from './pages/Purchases.jsx'
-import RecordSale from './pages/RecordSale.jsx'
-import SalesHistory from './pages/SalesHistory.jsx'
-import Settings from './pages/Settings.jsx'
 import { DEFAULT_PLATFORMS, INITIAL_ITEMS } from './lib/constants.js'
+import { WORKSPACE_NAVIGATION } from './lib/business-workspaces.js'
 import { readableError, supabase } from './lib/supabase.js'
 import { selectAllRows } from './lib/supabase-pagination.js'
+
+const Dashboard = lazy(() => import('./pages/Dashboard.jsx'))
+const AllBusinessHistory = lazy(() => import('./pages/AllBusinessHistory.jsx'))
+const Farming = lazy(() => import('./pages/Farming.jsx'))
+const Gems = lazy(() => import('./pages/Gems.jsx'))
+const Inventory = lazy(() => import('./pages/Inventory.jsx'))
+const MRHistory = lazy(() => import('./pages/MRHistory.jsx'))
+const MRInventory = lazy(() => import('./pages/MRInventory.jsx'))
+const MROperations = lazy(() => import('./pages/MROperations.jsx'))
+const MRSale = lazy(() => import('./pages/MRSale.jsx'))
+const MRSettings = lazy(() => import('./pages/MRSettings.jsx'))
+const Purchases = lazy(() => import('./pages/Purchases.jsx'))
+const RecordSale = lazy(() => import('./pages/RecordSale.jsx'))
+const SalesHistory = lazy(() => import('./pages/SalesHistory.jsx'))
+const Settings = lazy(() => import('./pages/Settings.jsx'))
+const UnifiedDashboard = lazy(() => import('./pages/UnifiedDashboard.jsx'))
 
 const emptyData = {
   items: [],
@@ -22,6 +31,15 @@ const emptyData = {
   saleItems: [],
   inventoryEvents: [],
   farmConfig: null,
+  mr: {
+    items: [],
+    setFamilies: [],
+    setStock: [],
+    sales: [],
+    saleItems: [],
+    inventoryEvents: [],
+    itemPrices: [],
+  },
 }
 
 export default function App() {
@@ -30,7 +48,15 @@ export default function App() {
   const [dataLoading, setDataLoading] = useState(false)
   const [data, setData] = useState(emptyData)
   const [appError, setAppError] = useState(null)
-  const [activePage, setActivePage] = useState(() => localStorage.getItem('rar-active-page') || 'dashboard')
+  const [workspace, setWorkspace] = useState(() => {
+    const saved = localStorage.getItem('business-workspace')
+    return ['all', 'rar', 'mr'].includes(saved) ? saved : 'all'
+  })
+  const [activePages, setActivePages] = useState(() => ({
+    all: localStorage.getItem('business-active-page-all') || 'dashboard',
+    rar: localStorage.getItem('rar-active-page') || 'dashboard',
+    mr: localStorage.getItem('business-active-page-mr') || 'dashboard',
+  }))
   const [toast, setToast] = useState(null)
   const toastTimer = useRef(null)
   const loadVersion = useRef(0)
@@ -73,9 +99,16 @@ export default function App() {
         supabase.from('rar_items').select('*').order('name'),
         supabase.from('rar_platforms').select('*').order('name'),
         selectAllRows(() => supabase.from('rar_sales').select('*').order('sold_at', { ascending: false })),
-        supabase.from('rar_sale_items').select('*').order('created_at', { ascending: false }).limit(5000),
-        supabase.from('rar_inventory_events').select('*').order('event_at', { ascending: false }).limit(3000),
+        selectAllRows(() => supabase.from('rar_sale_items').select('*').order('created_at', { ascending: false })),
+        selectAllRows(() => supabase.from('rar_inventory_events').select('*').order('event_at', { ascending: false })),
         supabase.from('rar_farm_config').select('*').maybeSingle(),
+        supabase.from('mr_items').select('*').order('category').order('name'),
+        supabase.from('mr_set_families').select('*').order('name'),
+        supabase.from('mr_set_stock_summary').select('*').order('name'),
+        selectAllRows(() => supabase.from('mr_sales').select('*').order('sold_at', { ascending: false })),
+        selectAllRows(() => supabase.from('mr_sale_items').select('*').order('created_at', { ascending: false })),
+        selectAllRows(() => supabase.from('mr_inventory_events').select('*').order('event_at', { ascending: false })),
+        supabase.from('mr_item_prices').select('*').order('updated_at', { ascending: false }),
       ])
       const firstError = requests.find((response) => response.error)?.error
       if (firstError) throw firstError
@@ -88,6 +121,15 @@ export default function App() {
         saleItems: requests[3].data || [],
         inventoryEvents: requests[4].data || [],
         farmConfig: requests[5].data || null,
+        mr: {
+          items: requests[6].data || [],
+          setFamilies: requests[7].data || [],
+          setStock: requests[8].data || [],
+          sales: requests[9].data || [],
+          saleItems: requests[10].data || [],
+          inventoryEvents: requests[11].data || [],
+          itemPrices: requests[12].data || [],
+        },
       })
     } catch (error) {
       if (version !== loadVersion.current) return
@@ -150,18 +192,25 @@ export default function App() {
     if (error) notify('error', readableError(error, 'Could not sign out.'))
   }
 
-  const navigate = (page) => {
-    setActivePage(page)
-    localStorage.setItem('rar-active-page', page)
+  const navigate = (page, nextWorkspace = workspace) => {
+    const validPage = WORKSPACE_NAVIGATION[nextWorkspace]?.some((entry) => entry.id === page) ? page : 'dashboard'
+    setWorkspace(nextWorkspace)
+    setActivePages((current) => ({ ...current, [nextWorkspace]: validPage }))
+    localStorage.setItem('business-workspace', nextWorkspace)
+    localStorage.setItem(`business-active-page-${nextWorkspace}`, validPage)
+    if (nextWorkspace === 'rar') localStorage.setItem('rar-active-page', validPage)
   }
+
+  const switchWorkspace = (nextWorkspace) => navigate(activePages[nextWorkspace] || 'dashboard', nextWorkspace)
 
   const refresh = useCallback(() => session ? loadBusinessData(session.user.id, { quiet: true }) : Promise.resolve(), [session, loadBusinessData])
 
   if (authLoading) return <LoadingScreen label="Restoring your session…" />
   if (!session) return <AuthPage onAuthenticate={authenticate} />
 
+  const activePage = activePages[workspace] || 'dashboard'
   const pageProps = { data, refresh, notify, user: session.user, onNavigate: navigate }
-  const pages = {
+  const rarPages = {
     dashboard: <Dashboard {...pageProps} />,
     sale: <RecordSale {...pageProps} />,
     inventory: <Inventory {...pageProps} />,
@@ -171,16 +220,29 @@ export default function App() {
     history: <SalesHistory {...pageProps} />,
     settings: <Settings {...pageProps} />,
   }
+  const mrPages = {
+    dashboard: <UnifiedDashboard {...pageProps} scope="mr" />,
+    inventory: <MRInventory {...pageProps} />,
+    sale: <MRSale {...pageProps} />,
+    operations: <MROperations {...pageProps} />,
+    history: <MRHistory {...pageProps} />,
+    settings: <MRSettings {...pageProps} />,
+  }
+  const allPages = {
+    dashboard: <UnifiedDashboard {...pageProps} scope="all" />,
+    history: <AllBusinessHistory {...pageProps} />,
+  }
+  const pages = workspace === 'rar' ? rarPages : workspace === 'mr' ? mrPages : allPages
 
   return (
     <>
-      <Shell activePage={activePage} onNavigate={navigate} user={session.user} onSignOut={signOut}>
+      <Shell workspace={workspace} onWorkspaceChange={switchWorkspace} activePage={activePage} onNavigate={navigate} user={session.user} onSignOut={signOut}>
         {dataLoading ? <LoadingScreen /> : appError ? (
           <Card className="error-card">
             <span><AlertCircle size={24} /></span>
             <div><h1>We couldn’t load your tracker</h1><p>{appError}</p><Button onClick={() => loadBusinessData(session.user.id)}><RefreshCw size={17} />Try again</Button></div>
           </Card>
-        ) : pages[activePage] || pages.dashboard}
+        ) : <Suspense fallback={<LoadingScreen label="Opening workspace…" />}>{pages[activePage] || pages.dashboard}</Suspense>}
       </Shell>
 
       {toast && (
