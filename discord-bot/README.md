@@ -63,7 +63,7 @@ All three channel IDs must be different. Use the normal Supabase account that ow
 
 ## 5. Apply the database migrations
 
-Apply all repository migrations to the same Supabase project before starting the bot. `20260904101125_mr_phase1_backend_bot.sql` adds the isolated MR tables/RPCs, furniture-set metadata, and PayPal/TNG platform support without seeding MR catalog items or changing existing business records.
+Apply all repository migrations to the same Supabase project before starting the bot. `20260904101125_mr_phase1_backend_bot.sql` adds the isolated MR tables/RPCs, furniture-set metadata, and PayPal/TNG platform support. `20260904144044_mr_catalog_reconciliation.sql` safely reconciles the approved 73-item MR catalog, adds the confirmed cookie typo alias, and creates the five confirmed set families without replacing existing item IDs or quantities.
 
 ## 6. Test and start
 
@@ -207,7 +207,7 @@ MR ADD - 5 ITEM A, 3 ITEM B
 MR STOCK - 17 ITEM A, 0 ITEM B
 ```
 
-MR has no FARM command. MR set aliases are accepted only after a confirmed family and its aliases have been configured in `mr_set_families`; each set expands atomically to one table plus four chairs. No production MR catalog or set family is seeded by this phase.
+MR has no FARM command. The confirmed set aliases are `Candy Cane Set`, `Dominus Infernus Set`, `Inverted Royal Set`, `Corrupted Royal Set`, and `Royal Set`; each expands atomically to one matching table plus four matching chairs. `Santa's Golden Cookies` is canonical, while the approved workbook typo `Santan's Golden Cookies` remains accepted as a legacy alias.
 
 Names are matched case-insensitively, with basic singular/plural handling and the `Dino Fossil` alias for `Dinosaur Fossil`. Unknown or ambiguous items reject the whole operation. If any GIVE item has insufficient stock, nothing is changed and the reply shows the item, required quantity, and available quantity.
 
