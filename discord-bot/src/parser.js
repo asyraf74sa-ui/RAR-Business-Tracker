@@ -16,7 +16,7 @@ export function detectSaleGame(content) {
   return match ? match[1].toUpperCase() : null
 }
 
-export function parseSaleMessage(content) {
+export function parseSaleMessage(content, { itemParser = parseItemList } = {}) {
   const lines = String(content || '')
     .replace(/\r\n?/g, '\n')
     .split('\n')
@@ -57,7 +57,7 @@ export function parseSaleMessage(content) {
   }
 
   const itemText = [header[2], ...lines.slice(1, netLine.index)].filter(Boolean).join(' ')
-  const items = parseItemList(itemText)
+  const items = itemParser(itemText)
 
   const platformText = lines.slice(feeLine.index + 1).join(' ')
   const platform = canonicalPlatformName(platformText)
@@ -67,6 +67,7 @@ export function parseSaleMessage(content) {
 
   return {
     game,
+    itemText,
     items,
     netCredit: netLine.amount,
     platformFee: feeLine.amount,

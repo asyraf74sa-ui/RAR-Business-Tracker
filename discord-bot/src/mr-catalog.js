@@ -7,32 +7,37 @@ import {
   normalizeName,
 } from './catalog.js'
 
+const CONFIRMED_ITEM_ALIASES = new Map([
+  ['golden christmas tree', ['GXMAS', 'G XMAS', 'Golden Xmas']],
+  ['gingerbread well', ['GWELL', 'Gingerwell', 'Ginger Well']],
+  ['luxury silverware tray', ['LUX', 'LUXTRAY', 'Lux Tray', 'Luxury Tray', 'Luxury Silverware']],
+  ['snowglobe tip jar', ['SNOW', 'SNOWGLOBE', 'Snow Globe']],
+  ['infernus dominus relic', ['RELIC', 'Infernus Relic', 'Dominus Relic']],
+  ['lightning tile', ['LT', 'L Tile']],
+  ['inverted well', ['INV WELL']],
+  ['moai statue', ['MOAI']],
+  ['hyper order stand', ['HYPER ORDER']],
+])
+
 const CONFIRMED_SET_ALIASES = new Map([
-  ['candy cane', ['Candy Set', 'Candy Cane Set']],
-  ['dominus infernus', ['Dom Set', 'Dominus Set', 'Dominus Infernus Set']],
-  ['inverted royal', ['Inv Set', 'Inverted Set', 'Inverted Royal Set']],
-  ['corrupted royal', ['Corr Set', 'Corrupted Set', 'Corrupted Royal Set']],
-  ['royal', ['Royal Set']],
+  ['candy cane', ['Candy', 'Candy Set', 'Candy Cane', 'Candy Cane Set']],
+  ['dominus infernus', ['Dom', 'Dom Set', 'Dominus', 'Dominus Set', 'Dominus Infernus', 'Dominus Infernus Set']],
+  ['inverted royal', ['Inv', 'Inv Set', 'Inverted', 'Inverted Set', 'Inverted Royal', 'Inverted Royal Set']],
+  ['corrupted royal', ['Corr', 'Corr Set', 'Corrupted', 'Corrupted Set', 'Corrupted Royal', 'Corrupted Royal Set']],
+  ['royal', ['Royal', 'Royal Set']],
 ])
 
 export function resolveMRItems(
   parsedItems,
   catalog,
-  { allowSets = true, combineDuplicates = true } = {},
+  options = {},
 ) {
+  const allowSets = options.allowSets ?? true
+  const allowShorthand = options.allowShorthand ?? allowSets
+  const combineDuplicates = options.combineDuplicates ?? true
   const items = catalog.items.filter((item) => item.is_archived !== true)
   const itemById = new Map(items.map((item) => [item.id, item]))
-  const index = new Map()
-
-  for (const item of items) {
-    addAliases(index, [item.name, ...(item.aliases || [])], { type: 'item', item })
-  }
-  if (allowSets) {
-    for (const family of catalog.setFamilies.filter((candidate) => candidate.active !== false)) {
-      const confirmedAliases = CONFIRMED_SET_ALIASES.get(normalizeName(family.name)) || []
-      addSetAliases(index, [...(family.aliases || []), ...confirmedAliases], { type: 'set', family })
-    }
-  }
+  const index = buildMRAliasIndex(catalog, { allowSets, allowShorthand })
 
   const expanded = new Map()
   const rpcItems = []
@@ -59,6 +64,38 @@ export function resolveMRItems(
   }
 
   return { items: [...expanded.values()], rpcItems }
+}
+
+export function buildMRAliasIndex(
+  catalog,
+  { allowSets = true, allowShorthand = true } = {},
+) {
+  const index = new Map()
+  for (const item of catalog.items.filter((candidate) => candidate.is_archived !== true)) {
+    const shorthand = allowShorthand
+      ? CONFIRMED_ITEM_ALIASES.get(normalizeName(item.name)) || []
+      : []
+    addAliases(index, [item.name, ...(item.aliases || []), ...shorthand], { type: 'item', item })
+  }
+
+  if (allowSets) {
+    for (const family of catalog.setFamilies.filter((candidate) => candidate.active !== false)) {
+      const shorthand = allowShorthand
+        ? CONFIRMED_SET_ALIASES.get(normalizeName(family.name)) || []
+        : []
+      addSetAliases(
+        index,
+        [family.name, ...(family.aliases || []), ...shorthand],
+        { type: 'set', family },
+      )
+    }
+  }
+
+  return index
+}
+
+export function mrMatchLabel(match) {
+  return matchLabel(match)
 }
 
 export function resolveMRSaleItems(parsedItems, catalog) {

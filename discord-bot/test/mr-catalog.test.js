@@ -55,21 +55,35 @@ test('confirmed MR set alias expands to one table and four chairs per set', () =
 test('all confirmed production shorthand aliases and plural forms expand through canonical components', () => {
   const cases = [
     ['CANDY SET', 'candy'],
+    ['CANDY', 'candy'],
+    ['CANDY CANE', 'candy'],
     ['CANDY CANE SET', 'candy'],
+    ['DOM', 'dom'],
     ['DOM SET', 'dom'],
+    ['DOMINUS', 'dom'],
     ['DOMINUS SET', 'dom'],
+    ['DOMINUS INFERNUS', 'dom'],
     ['DOMINUS INFERNUS SET', 'dom'],
+    ['INV', 'inv'],
     ['INV SET', 'inv'],
+    ['INVERTED', 'inv'],
     ['INVERTED SET', 'inv'],
+    ['INVERTED ROYAL', 'inv'],
     ['INVERTED ROYAL SET', 'inv'],
+    ['CORR', 'corr'],
     ['CORR SET', 'corr'],
+    ['CORRUPTED', 'corr'],
     ['CORRUPTED SET', 'corr'],
+    ['CORRUPTED ROYAL', 'corr'],
     ['CORRUPTED ROYAL SET', 'corr'],
+    ['ROYAL', 'royal'],
     ['ROYAL SET', 'royal'],
   ]
 
   for (const [alias, key] of cases) {
-    for (const spelling of [alias, alias.toLowerCase(), `${alias}S`]) {
+    const spellings = new Set([alias, alias.toLowerCase()])
+    if (alias.endsWith(' SET')) spellings.add(`${alias}S`)
+    for (const spelling of spellings) {
       const result = resolveMRSaleItems([{ name: spelling, quantity: 2 }], productionSetCatalog)
       assert.deepEqual(result.items.map(({ item, quantity }) => [item.id, quantity]), [
         [`${key}-table`, 2],

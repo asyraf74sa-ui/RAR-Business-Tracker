@@ -43,6 +43,15 @@ test('/help add explains that ADD increases rather than sets stock', () => {
   assert.match(page.description, /does not record cash cost/i)
 })
 
+test('/help sales documents compact MR shorthand without a canonical-name wall', () => {
+  const [page] = buildHelpPages('sales')
+  assert.match(page.description, /MR - 1GXMAS 3 LUXTRAY 50M GEMS 1 DOM/)
+  assert.match(page.description, /1,000,000 \*\*MR Gems only\*\*/)
+  assert.match(page.description, /DOM.*CORR.*INV.*CANDY.*ROYAL/)
+  assert.match(page.description, /MR STOCK.*strict/)
+  assert.ok(page.description.length < 1600)
+})
+
 test('/help stock explains that STOCK sets an exact count rather than adding it', () => {
   const [page] = buildHelpPages('stock')
   assert.equal(page.title, 'RAR + MR Bot Help — stock')
@@ -81,4 +90,12 @@ test('live item help sorts every exact name and stays within Discord embed limit
     .map((line) => line.replace(/^• /, ''))
   const expectedNames = [...itemNames].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
   assert.deepEqual(displayedNames, expectedNames)
+})
+
+test('MR valid-item help starts with compact shorthand and keeps active canonical names', () => {
+  const [page] = buildItemHelpPages(['Golden Christmas Tree', 'Gems (MR)'], { game: 'MR' })
+  assert.match(page.description, /Sets: `CANDY` \/ `DOM` \/ `INV` \/ `CORR` \/ `ROYAL`/)
+  assert.match(page.description, /Gems: `1M` = 1,000,000/)
+  assert.match(page.description, /• Gems \(MR\)/)
+  assert.match(page.description, /• Golden Christmas Tree/)
 })

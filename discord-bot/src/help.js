@@ -53,6 +53,11 @@ export function buildHelpPages(topic = 'overview', itemNames = []) {
       '```text\nMR - 1 ITEM NAME\n25.00 US\n0.50 US TAX\nPAYPAL\n```',
       'The first amount is the actual credit received. TAX/FEE is reported separately and is not subtracted again. Zero or nonzero fees are valid.',
       'TNG aliases include Touch n Go, Touch ‘n Go, Touch ‘n Go eWallet, and TNG eWallet.',
+      '**MR shorthand**',
+      '`MR - 1GXMAS 3 LUXTRAY 50M GEMS 1 DOM`',
+      'Each quantity starts the next item; spaces after quantities and commas between items are optional. `1M`, `1 M`, or `1 MILLION` means 1,000,000 **MR Gems only**.',
+      'Popular aliases include `GXMAS`, `GWELL`, `LUXTRAY`, `SNOW`, `RELIC`, `LT`, `INV WELL`, `MOAI`, and `HYPER ORDER`. Set aliases include `DOM`, `CORR`, `INV`, `CANDY`, and `ROYAL` (optionally followed by `SET`).',
+      'Use the **Valid item names** topic for the full active canonical catalog. `MR STOCK` remains strict and does not accept sale shorthand or set aliases.',
     ].join('\n'),
     purchase: [
       '**Stock purchase**',
@@ -127,7 +132,16 @@ export function buildItemHelpPages(itemNames, { maxDescriptionLength = ITEM_DESC
   const names = [...itemNames].map(String).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
   const lines = names.map((name) => `• ${name}`)
   const descriptions = []
-  let current = ''
+  let current = game === 'MR'
+    ? [
+        '**MR shorthand**',
+        'Sets: `CANDY` / `DOM` / `INV` / `CORR` / `ROYAL`',
+        'Popular: `GXMAS`, `GWELL`, `LUXTRAY`, `SNOW`, `RELIC`, `LT`, `INV WELL`, `MOAI`, `HYPER ORDER`',
+        'Gems: `1M` = 1,000,000 • `50M` = 50,000,000',
+        '',
+        '**Active canonical names**',
+      ].join('\n')
+    : ''
 
   for (const line of lines) {
     if (line.length > maxDescriptionLength) {

@@ -28,6 +28,7 @@ import {
 import { registerGuildCommands } from './command-registration.js'
 import { buildHelpPages } from './help.js'
 import { resolveMRItems, resolveMRSaleItems, resolveMRTradeItems } from './mr-catalog.js'
+import { parseMRSaleItemSequence } from './mr-sale-parser.js'
 import { processMonthlyHistoryInteraction, processMonthlyInteraction } from './monthly-command.js'
 import { detectSaleGame, isSaleMessage, parseSaleMessage, SaleParseError } from './parser.js'
 import { discordRequestId } from './request-id.js'
@@ -180,8 +181,12 @@ async function processDiscordSale(message, { isEdit }) {
 
     if (!looksLikeSale) return
 
-    const parsed = parseSaleMessage(message.content)
-    const catalog = parsed.game === 'MR' ? await loadMRCatalog(supabase) : await loadCatalog(supabase)
+    const catalog = game === 'MR' ? await loadMRCatalog(supabase) : await loadCatalog(supabase)
+    const parsed = parseSaleMessage(message.content, {
+      itemParser: game === 'MR'
+        ? (itemText) => parseMRSaleItemSequence(itemText, catalog)
+        : undefined,
+    })
     const platform = resolvePlatform(parsed.platform, catalog.platforms)
     const resolved = parsed.game === 'MR'
       ? resolveMRSaleItems(parsed.items, catalog)
@@ -379,7 +384,11 @@ async function processManualAdd(message, parsed, requestId, game) {
 async function processStockReconciliation(message, parsed, requestId, game) {
   const catalog = game === 'MR' ? await loadMRCatalog(supabase) : await loadCatalog(supabase)
   const resolved = game === 'MR'
-    ? resolveMRItems(parsed.items, catalog, { allowSets: false, combineDuplicates: false })
+    ? resolveMRItems(parsed.items, catalog, {
+        allowSets: false,
+        allowShorthand: false,
+        combineDuplicates: false,
+      })
     : { items: resolveStockItems(parsed.items, catalog.items) }
   const counts = game === 'MR'
     ? resolved.rpcItems.map(({ quantity, ...identity }) => ({ ...identity, counted_stock: quantity }))
