@@ -890,8 +890,9 @@ h2 { letter-spacing: -.025em; }
 .auth-card__heading p:not(.eyebrow) { max-width: 350px; margin: 0 auto; font-size: .8rem; }
 .auth-tabs, .mode-tabs { border: 1px solid #e6e4de; border-radius: 14px; background: #f1f0eb; }
 .auth-tabs button, .mode-tabs button { min-height: 40px; border-radius: 10px; }
-.auth-trust { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 17px; color: var(--muted-2); font-size: .65rem; }
+.auth-trust { display: flex; align-items: flex-start; justify-content: center; gap: 7px; margin-top: 17px; color: var(--muted-2); font-size: .65rem; line-height: 1.45; text-align: left; }
 .auth-trust svg { color: var(--green); }
+.auth-trust span { max-width: 330px; }
 .auth-benefits { width: min(880px, 100%); margin: 0 auto; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .auth-benefits > div { min-width: 0; display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid #e1e0da; border-radius: 15px; background: rgba(255,254,250,.75); backdrop-filter: none; }
 .auth-benefits > div > span { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 11px; color: var(--green); background: var(--green-soft); }

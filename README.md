@@ -86,4 +86,4 @@ npm test
 
 ## Deploy to Vercel
 
-Import this repository into Vercel. The included `vercel.json` identifies Vite and provides the single-page-app rewrite. The keyless FX adapter does not require a secret environment variable.
+Import this repository into Vercel. The included `vercel.json` identifies Vite, adds restrictive browser security headers, and intentionally leaves unknown paths as 404 responses instead of rewriting every URL to the authenticated app. The keyless FX adapter does not require a secret environment variable.

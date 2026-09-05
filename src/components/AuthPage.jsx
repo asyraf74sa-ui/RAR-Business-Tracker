@@ -63,9 +63,9 @@ export default function AuthPage({ onAuthenticate }) {
         <div className="auth-card">
           <div className="auth-card__heading">
             <span className="auth-card__icon"><WalletCards size={22} /></span>
-            <p className="eyebrow">Your unified business wallet</p>
-            <h1>{mode === 'login' ? 'Welcome back' : 'Create your workspace'}</h1>
-            <p>{mode === 'login' ? 'Sign in to move between All Business, RAR, and MR.' : 'Start private, isolated workspaces for both restaurant businesses.'}</p>
+            <p className="eyebrow">Private owner dashboard</p>
+            <h1>{mode === 'login' ? 'Business Tracker sign-in' : 'Create your workspace'}</h1>
+            <p>{mode === 'login' ? 'Use your RAR Business Tracker account to access your private RAR and My Restaurant records.' : 'Create a RAR Business Tracker account with private, isolated workspaces for both restaurant businesses.'}</p>
           </div>
 
           <div className="auth-tabs" role="tablist" aria-label="Authentication mode">
@@ -89,7 +89,7 @@ export default function AuthPage({ onAuthenticate }) {
             <Button type="submit" loading={loading} className="auth-submit">{mode === 'login' ? 'Sign in securely' : 'Create account'}<ArrowRight size={18} /></Button>
           </form>
 
-          <div className="auth-trust"><CheckCircle2 size={16} /><span>Protected by your existing Supabase account</span></div>
+          <div className="auth-trust"><CheckCircle2 size={16} /><span>Authentication is handled by Supabase. This app does not save your password in its business database.</span></div>
         </div>
       </main>
 
