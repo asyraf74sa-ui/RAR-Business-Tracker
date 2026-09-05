@@ -68,9 +68,11 @@ The Phase 2 migration is additive. It adds safe RAR catalog metadata and authent
 
 The wallet views request numeric USD-base MYR, PHP, and IDR rates from the keyless [Frankfurter](https://frankfurter.dev/) API through `GET /api/fx`. Vercel caches successful provider responses for one hour, while the browser keeps its last successful response and labels fallback data if a later refresh fails. Original-currency totals remain available when conversion is unavailable. Monthly history is explicitly labeled as a current-rate USD equivalent because historical exchange rates are not stored.
 
+Cash-basis profit reporting derives acquisition cost from the one non-null cash amount on each `supplier_purchase` bundle. It calculates `True Net Profit = Net Wallet Credit - Acquisition Cost`; platform fees remain informational because Net Wallet Credit already reflects them.
+
 ## Verification
 
-Run the 41 frontend tests and production build from the repository root:
+Run the frontend regression suite and production build from the repository root:
 
 ```bash
 npm test

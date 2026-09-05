@@ -50,7 +50,7 @@ test('keeps original currency totals usable when FX is unavailable', async () =>
     net_credit: 50_000,
     platform_fee: 500,
   }]
-  const originalTotals = currentMonthFinancials(rows, new Date('2026-09-15T00:00:00.000Z')).netTotals
+  const originalTotals = currentMonthFinancials(rows, [], new Date('2026-09-15T00:00:00.000Z')).netTotals
   const client = createFxClient({ fetchImpl: async () => { throw new Error('offline') } })
 
   await assert.rejects(client.getRates(), FxUnavailableError)

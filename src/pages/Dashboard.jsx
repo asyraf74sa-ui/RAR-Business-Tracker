@@ -16,6 +16,7 @@ import {
   TrendingUp,
   WalletCards,
 } from 'lucide-react'
+import FinancialProfitSection from '../components/FinancialProfitSection.jsx'
 import { Button, EmptyState, SectionHeading, StatusBadge } from '../components/ui.jsx'
 import { CURRENCIES } from '../lib/constants.js'
 import {
@@ -116,8 +117,8 @@ export default function Dashboard({ data, onNavigate }) {
   const activeFarmItems = physicalItems.filter((item) => item.is_farm_item && item.active)
   const itemMap = useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
   const financialOverview = useMemo(
-    () => walletFinancialOverview(sales, fxState.data?.rates, dashboardNow),
-    [sales, fxState.data?.rates, dashboardNow],
+    () => walletFinancialOverview(sales, inventoryEvents, fxState.data?.rates, dashboardNow),
+    [sales, inventoryEvents, fxState.data?.rates, dashboardNow],
   )
   const { current, previous, lifetime, comparison, months: monthlyHistory } = financialOverview
   const { period, sales: currentMonthSales, netTotals, feeTotals, grossTotals, saleCountByCurrency, usd: combinedUsd } = current
@@ -255,6 +256,8 @@ export default function Dashboard({ data, onNavigate }) {
         </aside>
       </div>
 
+      <FinancialProfitSection overview={financialOverview} />
+
       <section className="monthly-wallet dashboard-surface" aria-labelledby="monthly-wallet-title">
         <div className="monthly-wallet__heading">
           <div><p className="eyebrow">Financial activity</p><h2 id="monthly-wallet-title">Monthly Wallet Credit</h2><p>Automatic Malaysia calendar months, newest first. USD equivalents use the latest available current FX rates.</p></div>
@@ -263,22 +266,29 @@ export default function Dashboard({ data, onNavigate }) {
         <div className="monthly-wallet__list">
           {monthlyHistory.map((month, index) => {
             const saleCount = CURRENCIES.reduce((sum, currency) => sum + month.saleCountByCurrency[currency], 0)
-            const recordedBalances = CURRENCIES.filter((currency) => toNumber(month.netTotals[currency]) !== 0)
+            const purchaseCount = CURRENCIES.reduce((sum, currency) => sum + month.purchaseCountByCurrency[currency], 0)
+            const recordedNet = CURRENCIES.filter((currency) => toNumber(month.netTotals[currency]) !== 0)
+            const recordedCosts = CURRENCIES.filter((currency) => toNumber(month.acquisitionTotals[currency]) !== 0)
             return (
               <article className={`monthly-wallet__row ${index === 0 ? 'is-current' : ''}`} key={month.period.key}>
                 <div className="monthly-wallet__identity">
                   <span>{index === 0 ? 'Current month' : month.period.key}</span>
                   <strong>{month.period.label}</strong>
-                  <small>{saleCount} {saleCount === 1 ? 'sale' : 'sales'}</small>
+                  <small>{saleCount} {saleCount === 1 ? 'sale' : 'sales'} · {purchaseCount} {purchaseCount === 1 ? 'purchase' : 'purchases'}</small>
                 </div>
                 <div className="monthly-wallet__original" aria-label={`${month.period.label} original-currency balances`}>
-                  {recordedBalances.length === 0 ? <span>Empty month · no recorded sales</span> : recordedBalances.map((currency) => (
-                    <span key={currency}><small>{currency}</small><strong>{formatOriginalBalance(month.netTotals[currency], currency)}</strong></span>
+                  {recordedNet.map((currency) => (
+                    <span key={`net-${currency}`}><small>{currency} NET</small><strong>{formatOriginalBalance(month.netTotals[currency], currency)}</strong></span>
                   ))}
+                  {recordedCosts.map((currency) => (
+                    <span key={`cost-${currency}`}><small>{currency} COST</small><strong>{formatOriginalBalance(month.acquisitionTotals[currency], currency)}</strong></span>
+                  ))}
+                  {recordedNet.length === 0 && recordedCosts.length === 0 && <span>Empty month · no recorded financial activity</span>}
                 </div>
-                <div className="monthly-wallet__amount">
-                  <small>{month.usd.approximate ? 'USD equivalent · current FX' : 'USD net wallet credit'}</small>
-                  <UsdEquivalent conversion={month.usd} compact />
+                <div className="monthly-wallet__metrics">
+                  <span><small>Net wallet</small><UsdEquivalent conversion={month.usd} compact /></span>
+                  <span><small>Acquisition</small><UsdEquivalent conversion={month.acquisitionUsd} compact /></span>
+                  <span className="is-profit"><small>True net profit</small><UsdEquivalent conversion={month.profitUsd} compact /></span>
                 </div>
               </article>
             )

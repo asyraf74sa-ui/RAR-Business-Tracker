@@ -1658,7 +1658,53 @@ input:focus, select:focus, textarea:focus { border-color: rgba(121,164,255,.65);
 .monthly-wallet__amount .usd-equivalent { justify-content: flex-end; margin-top: 4px; }
 .monthly-wallet__amount .usd-equivalent strong { font-size: clamp(1.15rem, 2vw, 1.55rem); font-weight: 570; letter-spacing: -.04em; }
 .monthly-wallet__amount .usd-equivalent i { font-size: .9rem; }
+.monthly-wallet__metrics { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(92px, 1fr)); align-items: center; gap: 11px; }
+.monthly-wallet__metrics > span { min-width: 0; display: grid; gap: 4px; padding-left: 11px; border-left: 1px solid var(--hairline); }
+.monthly-wallet__metrics > span:first-child { padding-left: 0; border-left: 0; }
+.monthly-wallet__metrics small { color: var(--muted-2); font-size: .5rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.monthly-wallet__metrics .usd-equivalent, .monthly-wallet__metrics .profit-equivalent { margin: 0; }
+.monthly-wallet__metrics .usd-equivalent strong, .monthly-wallet__metrics .profit-equivalent strong { font-size: clamp(.78rem, 1.25vw, 1rem); }
+.monthly-wallet__metrics .is-profit strong { color: #8de0b1; }
 .monthly-wallet > footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-top: 14px; color: var(--muted-2); font-size: .55rem; }
+
+.profit-ledger { position: relative; overflow: hidden; gap: 26px; background: linear-gradient(145deg, rgba(28,30,37,.98), rgba(13,14,18,.99)); }
+.profit-ledger::before { content: ""; position: absolute; width: 410px; height: 410px; top: -300px; right: -90px; border-radius: 50%; background: rgba(67,109,214,.16); filter: blur(12px); pointer-events: none; }
+.profit-ledger__heading { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; }
+.profit-ledger__heading h2 { display: flex; align-items: baseline; gap: 9px; margin: 4px 0 8px; font-size: clamp(1.2rem, 2vw, 1.65rem); }
+.profit-ledger__heading h2 small { padding: 4px 7px; border-radius: 999px; color: #9fb8f4; background: rgba(93,129,220,.14); font-size: .52rem; font-weight: 720; letter-spacing: .06em; text-transform: uppercase; }
+.profit-ledger__heading > div:first-child > p:last-child { max-width: 690px; margin: 0; color: var(--muted); font-size: .7rem; line-height: 1.55; }
+.profit-ledger__periods { flex: 0 0 auto; display: flex; gap: 3px; padding: 4px; border-radius: 15px; background: rgba(255,255,255,.045); }
+.profit-ledger__periods button { min-height: 34px; padding: 7px 11px; border: 0; border-radius: 11px; color: var(--muted); background: transparent; font: inherit; font-size: .58rem; font-weight: 660; cursor: pointer; }
+.profit-ledger__periods button.is-active { color: #f3f4f7; background: rgba(255,255,255,.1); box-shadow: inset 0 1px 0 rgba(255,255,255,.055); }
+.profit-ledger__periods button:focus-visible { outline: 2px solid #9bb7ff; outline-offset: 2px; }
+.profit-ledger__body { position: relative; display: grid; grid-template-columns: minmax(260px, .8fr) minmax(0, 1.2fr); gap: clamp(24px, 4vw, 54px); align-items: stretch; }
+.profit-ledger__hero { min-width: 0; display: grid; align-content: center; gap: 8px; padding-right: clamp(24px, 4vw, 54px); border-right: 1px solid var(--hairline); }
+.profit-ledger__hero > span:first-child { color: var(--muted); font-size: .61rem; font-weight: 680; letter-spacing: .04em; }
+.profit-ledger__hero > small { color: var(--muted-2); font-size: .6rem; line-height: 1.45; overflow-wrap: anywhere; }
+.profit-equivalent { min-width: 0; display: inline-flex; align-items: baseline; gap: 5px; font-variant-numeric: tabular-nums; }
+.profit-equivalent i { color: var(--muted); font-style: normal; }
+.profit-equivalent strong { min-width: 0; font-size: .9rem; font-weight: 590; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.profit-equivalent--prominent strong { color: #f5f6f9; font-size: clamp(2.4rem, 5.2vw, 5rem); font-weight: 440; line-height: 1; letter-spacing: -.065em; }
+.profit-equivalent--prominent i { font-size: clamp(1.4rem, 3vw, 2.7rem); }
+.profit-ledger__hero.is-negative .profit-equivalent--prominent strong { color: #f29a91; }
+.profit-equivalent.is-unavailable strong { color: var(--muted); }
+.profit-ledger__metrics { display: grid; align-content: stretch; }
+.profit-ledger__metrics article { min-width: 0; display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 13px 0; border-top: 1px solid var(--hairline); }
+.profit-ledger__metrics article:first-child { border-top: 0; }
+.profit-ledger__metric-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 12px; color: #a9c1ff; background: rgba(99,134,222,.12); }
+.profit-ledger__metrics article > div { min-width: 0; display: grid; gap: 3px; }
+.profit-ledger__metrics article > div > span { color: #dfe0e5; font-size: .68rem; font-weight: 650; }
+.profit-ledger__metrics article > div > small { color: var(--muted-2); font-size: .54rem; overflow-wrap: anywhere; }
+.profit-ledger__contributions { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding-top: 4px; }
+.profit-ledger__contributions article { min-width: 0; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 13px 15px; border-radius: 17px; background: rgba(255,255,255,.035); }
+.profit-ledger__contributions article > div { min-width: 0; display: grid; gap: 3px; }
+.profit-ledger__contributions article > div > strong, .profit-ledger__contributions article > div > span { font-size: .62rem; }
+.profit-ledger__contributions article > div > small { color: var(--muted-2); font-size: .52rem; }
+.profit-ledger__contributions article > div:last-child { justify-items: end; text-align: right; }
+.profit-ledger > footer { position: relative; display: flex; align-items: center; gap: 8px; padding-top: 15px; border-top: 1px solid var(--hairline); color: var(--muted-2); font-size: .55rem; }
+.mr-virtual-wallet .section-heading { margin-bottom: 12px; }
+.mr-virtual-wallet .stock-wallet-list { background: linear-gradient(145deg, rgba(69,50,128,.26), rgba(20,18,30,.98)); }
+.mr-virtual-wallet .stock-wallet-list__mark { color: #d4b7ff; background: rgba(158,106,235,.14); }
 
 .dashboard-surface {
   min-width: 0;
@@ -1788,6 +1834,14 @@ input:focus, select:focus, textarea:focus { border-color: rgba(121,164,255,.65);
   .monthly-wallet__row { grid-template-columns: minmax(0, 1fr) auto; gap: 12px 18px; padding-block: 17px; }
   .monthly-wallet__original { grid-column: 1 / -1; grid-row: 2; }
   .monthly-wallet__amount { grid-column: 2; grid-row: 1; }
+  .monthly-wallet__metrics { grid-column: 1 / -1; grid-row: 3; }
+  .unified-dashboard .monthly-wallet__row:has(.month-contributions) .monthly-wallet__metrics { grid-row: 4; }
+  .profit-ledger__heading { flex-direction: column; }
+  .profit-ledger__periods { width: 100%; }
+  .profit-ledger__periods button { flex: 1; }
+  .profit-ledger__body { grid-template-columns: 1fr; gap: 22px; }
+  .profit-ledger__hero { min-height: 170px; padding: 0 0 22px; border: 0; border-bottom: 1px solid var(--hairline); }
+  .profit-ledger__contributions { grid-template-columns: 1fr; }
   .monthly-wallet > footer { align-items: flex-start; flex-direction: column; gap: 4px; }
   .platform-performance__row { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
   .platform-performance__money { grid-column: 1; min-width: 0; }
@@ -1835,6 +1889,14 @@ input:focus, select:focus, textarea:focus { border-color: rgba(121,164,255,.65);
   .monthly-wallet__identity strong { font-size: .82rem; }
   .monthly-wallet__amount .usd-equivalent strong { font-size: clamp(1rem, 5vw, 1.2rem); }
   .monthly-wallet__original { gap: 6px 12px; }
+  .monthly-wallet__metrics { grid-template-columns: 1fr; gap: 0; }
+  .monthly-wallet__metrics > span { padding: 8px 0; border: 0; border-top: 1px solid var(--hairline); }
+  .monthly-wallet__metrics > span:first-child { border-top: 0; }
+  .profit-ledger__periods button { padding-inline: 6px; font-size: .52rem; }
+  .profit-ledger__metrics article { grid-template-columns: 34px minmax(0, 1fr); }
+  .profit-ledger__metrics article > .profit-equivalent { grid-column: 2; }
+  .profit-ledger__contributions article { grid-template-columns: 34px minmax(0, 1fr); }
+  .profit-ledger__contributions article > div:last-child { grid-column: 2; justify-items: start; text-align: left; }
   .farm-capacity__stats { grid-template-columns: 1fr 1fr; }
   .farm-capacity__stats > div { padding: 11px 8px; }
 }

@@ -36,16 +36,44 @@ function tagSales(sales, game) {
   return (sales || []).map((sale) => ({ ...sale, game }))
 }
 
+function tagEvents(events, game) {
+  return (events || []).map((event) => ({ ...event, game }))
+}
+
 function monthByKey(overview, key) {
   return overview.months.find((month) => month.period.key === key)
 }
 
-export function buildUnifiedFinancialOverview(rarSales, mrSales, rates, now = new Date()) {
+function financialContribution(month, rates) {
+  const empty = convertCurrencyTotalsToUsd({}, rates)
+  return {
+    net: month?.usd || empty,
+    acquisition: month?.acquisitionUsd || empty,
+    profit: month?.profitUsd || empty,
+    fees: month?.feeUsd || empty,
+  }
+}
+
+export function buildUnifiedFinancialOverview(
+  rarSales,
+  mrSales,
+  rarInventoryEvents,
+  mrInventoryEvents,
+  rates,
+  now = new Date(),
+) {
   const taggedRar = tagSales(rarSales, 'RAR')
   const taggedMr = tagSales(mrSales, 'MR')
-  const combined = walletFinancialOverview([...taggedRar, ...taggedMr], rates, now)
-  const rar = walletFinancialOverview(taggedRar, rates, now)
-  const mr = walletFinancialOverview(taggedMr, rates, now)
+  const taggedRarEvents = tagEvents(rarInventoryEvents, 'RAR')
+  const taggedMrEvents = tagEvents(mrInventoryEvents, 'MR')
+  const combined = walletFinancialOverview(
+    [...taggedRar, ...taggedMr],
+    [...taggedRarEvents, ...taggedMrEvents],
+    rates,
+    now,
+  )
+  const rar = walletFinancialOverview(taggedRar, taggedRarEvents, rates, now)
+  const mr = walletFinancialOverview(taggedMr, taggedMrEvents, rates, now)
 
   return {
     ...combined,
@@ -56,8 +84,8 @@ export function buildUnifiedFinancialOverview(rarSales, mrSales, rates, now = ne
       return {
         ...month,
         contributions: {
-          RAR: rarMonth?.usd || convertCurrencyTotalsToUsd({}, rates),
-          MR: mrMonth?.usd || convertCurrencyTotalsToUsd({}, rates),
+          RAR: financialContribution(rarMonth, rates),
+          MR: financialContribution(mrMonth, rates),
         },
       }
     }),

@@ -11,7 +11,7 @@ test('All Business calculates current, previous, and lifetime wallet credit acro
     { id: 'r2', sold_at: '2026-08-02T02:00:00Z', platform: 'TNG', currency: 'PHP', net_credit: 5800, platform_fee: 580 },
   ]
   const mr = [{ id: 'm1', sold_at: '2026-09-03T02:00:00Z', platform: 'TNG', currency: 'MYR', net_credit: 470, platform_fee: 47 }]
-  const overview = buildUnifiedFinancialOverview(rar, mr, rates, now)
+  const overview = buildUnifiedFinancialOverview(rar, mr, [], [], rates, now)
 
   assert.equal(overview.current.usd.total, 200)
   assert.equal(overview.previous.usd.total, 100)
@@ -29,7 +29,7 @@ test('All Business monthly history remains continuous and labels current-rate co
     { sold_at: '2026-06-10T02:00:00Z', currency: 'USD', net_credit: 25, platform_fee: 0 },
   ], [
     { sold_at: '2026-09-03T02:00:00Z', currency: 'IDR', net_credit: 1_600_000, platform_fee: 0 },
-  ], rates, now)
+  ], [], [], rates, now)
   assert.deepEqual(overview.months.map((month) => month.period.key), ['2026-09', '2026-08', '2026-07', '2026-06'])
   assert.equal(overview.months[0].usd.total, 100)
   assert.equal(overview.months[0].usd.approximate, true)
@@ -40,7 +40,7 @@ test('All Business monthly history remains continuous and labels current-rate co
 test('All Business preserves FX unavailability without inventing conversions', () => {
   const overview = buildUnifiedFinancialOverview([], [
     { sold_at: '2026-09-03T02:00:00Z', currency: 'MYR', net_credit: 47, platform_fee: 0 },
-  ], null, now)
+  ], [], [], null, now)
   assert.equal(overview.current.usd.total, null)
   assert.deepEqual(overview.current.usd.unavailableCurrencies, ['MYR'])
   assert.equal(overview.current.netTotals.MYR, 47)

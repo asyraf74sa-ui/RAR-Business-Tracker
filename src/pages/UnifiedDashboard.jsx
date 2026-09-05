@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, Boxes, Landmark, Plus, ReceiptText, Sparkles, WalletCards } from 'lucide-react'
+import FinancialProfitSection from '../components/FinancialProfitSection.jsx'
 import { Button, CurrencyStrip, EmptyState, PageHeader, SectionHeading, StatusBadge } from '../components/ui.jsx'
 import { CURRENCIES } from '../lib/constants.js'
 import { malaysiaMonthPeriod, walletFinancialOverview } from '../lib/dashboard-finance.js'
@@ -45,9 +46,9 @@ export default function UnifiedDashboard({ data, scope, onNavigate }) {
   const taggedMr = useMemo(() => data.mr.sales.map((sale) => ({ ...sale, game: 'MR' })), [data.mr.sales])
   const sales = allBusiness ? [...taggedRar, ...taggedMr] : taggedMr
   const overview = useMemo(() => allBusiness
-    ? buildUnifiedFinancialOverview(data.sales, data.mr.sales, fx.data?.rates, now)
-    : walletFinancialOverview(taggedMr, fx.data?.rates, now),
-  [allBusiness, data.sales, data.mr.sales, taggedMr, fx.data?.rates, now])
+    ? buildUnifiedFinancialOverview(data.sales, data.mr.sales, data.inventoryEvents, data.mr.inventoryEvents, fx.data?.rates, now)
+    : walletFinancialOverview(taggedMr, data.mr.inventoryEvents, fx.data?.rates, now),
+  [allBusiness, data.sales, data.mr.sales, data.inventoryEvents, data.mr.inventoryEvents, taggedMr, fx.data?.rates, now])
   const currentCurrencySales = overview.current.sales.filter((sale) => String(sale.currency).toUpperCase() === currency)
   const platforms = useMemo(() => platformPerformance(currentCurrencySales, currency), [currentCurrencySales, currency])
 
@@ -93,6 +94,8 @@ export default function UnifiedDashboard({ data, scope, onNavigate }) {
         <article><span>Recorded sales</span><strong>{sales.length}</strong><small>{allBusiness ? `${taggedRar.length} RAR · ${taggedMr.length} MR` : 'MR only'}</small></article>
       </section>
 
+      <FinancialProfitSection overview={overview} gameOverviews={allBusiness ? overview.games : null} />
+
       {allBusiness && (
         <section className="contribution-pass dashboard-surface">
           <SectionHeading title="RAR vs MR contribution" description="Current-month Net Wallet Credit converted with the same current FX snapshot." />
@@ -109,14 +112,26 @@ export default function UnifiedDashboard({ data, scope, onNavigate }) {
       <section className="monthly-wallet dashboard-surface">
         <div className="monthly-wallet__heading"><div><p className="eyebrow">Automatic timeline</p><h2>Monthly earnings history</h2><p>Continuous Malaysia calendar months. Converted values are current-rate USD equivalents.</p></div><span><Landmark size={16} />Asia/Kuala_Lumpur</span></div>
         <div className="monthly-wallet__list">
-          {overview.months.map((month, index) => (
-            <article className={`monthly-wallet__row ${index === 0 ? 'is-current' : ''}`} key={month.period.key}>
-              <div className="monthly-wallet__identity"><span>{index === 0 ? 'Current month' : month.period.key}</span><strong>{month.period.label}</strong><small>{month.sales.length} sales</small></div>
-              <div className="monthly-wallet__original">{CURRENCIES.filter((code) => toNumber(month.netTotals[code])).map((code) => <span key={code}><small>{code}</small><strong>{formatMoney(month.netTotals[code], code)}</strong></span>)}{!CURRENCIES.some((code) => toNumber(month.netTotals[code])) && <span>Empty month · no recorded sales</span>}</div>
-              {allBusiness && <div className="month-contributions"><span>RAR <Equivalent value={month.contributions.RAR.total} approximate={month.contributions.RAR.approximate} /></span><span>MR <Equivalent value={month.contributions.MR.total} approximate={month.contributions.MR.approximate} /></span></div>}
-              <div className="monthly-wallet__amount"><small>{month.usd.approximate ? 'Current-rate USD equivalent' : 'USD Net Wallet Credit'}</small><Equivalent value={month.usd.total} approximate={month.usd.approximate} /></div>
-            </article>
-          ))}
+          {overview.months.map((month, index) => {
+            const recordedNet = CURRENCIES.filter((code) => toNumber(month.netTotals[code]))
+            const recordedCosts = CURRENCIES.filter((code) => toNumber(month.acquisitionTotals[code]))
+            return (
+              <article className={`monthly-wallet__row ${index === 0 ? 'is-current' : ''}`} key={month.period.key}>
+                <div className="monthly-wallet__identity"><span>{index === 0 ? 'Current month' : month.period.key}</span><strong>{month.period.label}</strong><small>{month.sales.length} sales · {month.purchaseEvents.length} purchases</small></div>
+                <div className="monthly-wallet__original">
+                  {recordedNet.map((code) => <span key={`net-${code}`}><small>{code} NET</small><strong>{formatMoney(month.netTotals[code], code)}</strong></span>)}
+                  {recordedCosts.map((code) => <span key={`cost-${code}`}><small>{code} COST</small><strong>{formatMoney(month.acquisitionTotals[code], code)}</strong></span>)}
+                  {!recordedNet.length && !recordedCosts.length && <span>Empty month · no recorded financial activity</span>}
+                </div>
+                {allBusiness && <div className="month-contributions"><span>RAR profit <Equivalent value={month.contributions.RAR.profit.total} approximate={month.contributions.RAR.profit.approximate} /></span><span>MR profit <Equivalent value={month.contributions.MR.profit.total} approximate={month.contributions.MR.profit.approximate} /></span></div>}
+                <div className="monthly-wallet__metrics">
+                  <span><small>Net wallet</small><Equivalent value={month.usd.total} approximate={month.usd.approximate} /></span>
+                  <span><small>Acquisition</small><Equivalent value={month.acquisitionUsd.total} approximate={month.acquisitionUsd.approximate} /></span>
+                  <span className="is-profit"><small>True net profit</small><Equivalent value={month.profitUsd.total} approximate={month.profitUsd.approximate} /></span>
+                </div>
+              </article>
+            )
+          })}
         </div>
       </section>
 
