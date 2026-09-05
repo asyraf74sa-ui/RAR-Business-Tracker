@@ -87,7 +87,7 @@ test('MR reconciliation validates every active row and sends only changed item i
 test('MR Stock UI uses the authenticated batch RPC and keeps set summaries derived', () => {
   const page = readFileSync(new URL('../src/pages/MRInventory.jsx', import.meta.url), 'utf8')
   const rarPage = readFileSync(new URL('../src/pages/Inventory.jsx', import.meta.url), 'utf8')
-  const migration = readFileSync(new URL('../supabase/migrations/20260906120000_mr_reconciliation_quantity_limits.sql', import.meta.url), 'utf8')
+  const migration = readFileSync(new URL('../supabase/migrations/20260905162752_mr_reconciliation_quantity_limits.sql', import.meta.url), 'utf8')
   const rpc = readFileSync(new URL('../supabase/migrations/20260904101125_mr_phase1_backend_bot.sql', import.meta.url), 'utf8')
 
   assert.match(page, /rpc\('mr_reconcile_stock_batch'/)
