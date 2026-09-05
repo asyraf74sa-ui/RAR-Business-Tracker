@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { loadFinancialHistoryRecords, loadMonthlyFinancialRecords } from '../src/supabase.js'
+import {
+  loadFinancialHistoryRecords,
+  loadMonthlyFinancialRecords,
+  loadWeeklySalesRecords,
+} from '../src/supabase.js'
 
 test('monthly financial loading uses paginated SELECT filters only and never calls a mutation RPC', async () => {
   const sales = Array.from({ length: 1001 }, (_, index) => ({ id: `sale-${index}` }))
@@ -52,6 +56,44 @@ test('MR monthly loading selects only MR sales and inventory events', async () =
   const tables = calls.filter(([method]) => method === 'from').map((call) => call[1])
   assert.deepEqual(tables.sort(), ['mr_inventory_events', 'mr_sales'])
   assert.ok(tables.every((table) => !table.startsWith('rar_')))
+})
+
+test('weekly loading uses [start, end), authoritative sales, and only their sale-item rows', async () => {
+  const range = {
+    startInclusive: '2026-09-05T01:30:00.000Z',
+    endExclusive: '2026-09-12T01:30:00.000Z',
+  }
+  const { supabase, calls } = fakeSupabase({
+    rar_sales: [{ id: 'sale-1' }, { id: 'sale-2' }],
+    rar_sale_items: [{ id: 'line-1', sale_id: 'sale-1', quantity: 2 }],
+  })
+
+  const result = await loadWeeklySalesRecords(supabase, range)
+  assert.equal(result.sales.length, 2)
+  assert.equal(result.saleItems.length, 1)
+  assert.ok(calls.some((call) => call[0] === 'gte'
+    && call[1] === 'rar_sales'
+    && call[2] === 'sold_at'
+    && call[3] === range.startInclusive))
+  assert.ok(calls.some((call) => call[0] === 'lt'
+    && call[1] === 'rar_sales'
+    && call[2] === 'sold_at'
+    && call[3] === range.endExclusive))
+  assert.ok(calls.some((call) => call[0] === 'in'
+    && call[1] === 'rar_sale_items'
+    && call[2] === 'sale_id'
+    && JSON.stringify(call[3]) === JSON.stringify(['sale-1', 'sale-2'])))
+  assert.equal(calls.filter(([method]) => method === 'rpc').length, 0)
+})
+
+test('MR weekly loading never reads RAR tables', async () => {
+  const { supabase, calls } = fakeSupabase({ mr_sales: [], mr_sale_items: [] })
+  await loadWeeklySalesRecords(supabase, {
+    startInclusive: '2026-09-05T01:30:00.000Z',
+    endExclusive: '2026-09-12T01:30:00.000Z',
+  }, 'MR')
+  const tables = calls.filter(([method]) => method === 'from').map((call) => call[1])
+  assert.deepEqual(tables, ['mr_sales'])
 })
 
 function fakeSupabase(rowsByTable) {

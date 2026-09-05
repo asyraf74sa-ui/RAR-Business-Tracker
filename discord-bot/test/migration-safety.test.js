@@ -18,6 +18,14 @@ const mrSql = readFileSync(
   new URL('../../supabase/migrations/20260904101125_mr_phase1_backend_bot.sql', import.meta.url),
   'utf8',
 )
+const weeklyReportsSql = readFileSync(
+  new URL('../../supabase/migrations/20260905073000_weekly_discord_sales_reports.sql', import.meta.url),
+  'utf8',
+)
+const weeklyReportsPrivilegesSql = readFileSync(
+  new URL('../../supabase/migrations/20260905074500_weekly_discord_reports_least_privilege.sql', import.meta.url),
+  'utf8',
+)
 
 test('acquisition RPCs preserve authenticated invoker isolation', () => {
   assert.match(sql, /rar_record_purchase_bundle[\s\S]+?security invoker[\s\S]+?auth\.uid\(\)/i)
@@ -152,4 +160,39 @@ test('MR migration does not seed or invent any MR catalog item or set family', (
   const beforeUserInvokedLoader = mrSql.slice(0, mrSql.indexOf('create or replace function public.mr_upsert_catalog_item'))
   assert.doesNotMatch(beforeUserInvokedLoader, /insert into public\.mr_items/i)
   assert.doesNotMatch(mrSql, /insert into public\.mr_set_families/i)
+})
+
+test('weekly report delivery state is user-owned, RLS protected, and uniquely keyed by period', () => {
+  assert.match(weeklyReportsSql, /create table if not exists public\.discord_report_deliveries/i)
+  assert.match(weeklyReportsSql, /unique \(\s*user_id, report_type, period_start, period_end\s*\)/i)
+  assert.match(weeklyReportsSql, /alter table public\.discord_report_deliveries enable row level security/i)
+  assert.match(weeklyReportsSql, /for select to authenticated[\s\S]+?auth\.uid\(\)[\s\S]+?user_id/i)
+  assert.match(weeklyReportsSql, /for insert to authenticated[\s\S]+?with check[\s\S]+?auth\.uid\(\)/i)
+  assert.match(weeklyReportsSql, /for update to authenticated[\s\S]+?using[\s\S]+?with check/i)
+  assert.match(weeklyReportsSql, /revoke all on public\.discord_report_deliveries from public, anon, authenticated/i)
+  assert.match(weeklyReportsPrivilegesSql, /revoke all on public\.discord_report_deliveries from public, anon, authenticated/i)
+  assert.match(weeklyReportsPrivilegesSql, /grant select, insert, update on public\.discord_report_deliveries to authenticated/i)
+  assert.doesNotMatch(weeklyReportsPrivilegesSql, /grant[\s\S]+?delete/i)
+  assert.doesNotMatch(weeklyReportsSql, /disable row level security/i)
+})
+
+test('weekly delivery RPCs are invoker-secure, authenticated, leased, and explicitly granted', () => {
+  for (const name of ['claim_discord_report_delivery', 'mark_discord_report_delivery_sent']) {
+    const start = weeklyReportsSql.indexOf(`create or replace function public.${name}`)
+    const bodyEnd = weeklyReportsSql.indexOf('$function$;', start)
+    const body = weeklyReportsSql.slice(start, bodyEnd)
+    assert.ok(start >= 0, `${name} is present`)
+    assert.match(body, /security invoker/i)
+    assert.match(body, /auth\.uid\(\)/i)
+    assert.match(body, /pg_advisory_xact_lock/i)
+    assert.match(body, /p_claim_token/i)
+    assert.match(weeklyReportsSql, new RegExp(`revoke all on function public\\.${name}[\\s\\S]+?from public, anon`, 'i'))
+    assert.match(weeklyReportsSql, new RegExp(`grant execute on function public\\.${name}[\\s\\S]+?to authenticated`, 'i'))
+  }
+  assert.match(weeklyReportsSql, /lease_expires_at <= now\(\)/i)
+  assert.match(weeklyReportsSql, /status = 'sent'/i)
+})
+
+test('weekly delivery migration never mutates business sales or inventory data', () => {
+  assert.doesNotMatch(weeklyReportsSql, /(?:insert into|update|delete from) public\.(?:rar|mr)_(?:sales|sale_items|items|inventory_events)/i)
 })

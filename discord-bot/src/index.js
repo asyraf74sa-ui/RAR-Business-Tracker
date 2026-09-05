@@ -34,6 +34,7 @@ import { discordRequestId } from './request-id.js'
 import { routeDiscordMessage } from './routing.js'
 import { buildStockReconciliationResults, formatStockReconciliationLine } from './stock-results.js'
 import { processStockAutocompleteInteraction, processStockInteraction } from './stock-command.js'
+import { createWeeklySalesReporter } from './weekly-reporter.js'
 import {
   addStockBundle,
   addMRStockBundle,
@@ -74,6 +75,12 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message],
 })
 
+const weeklySalesReporter = createWeeklySalesReporter({
+  channelId: config.DISCORD_SALES_CHANNEL_ID,
+  client,
+  supabase,
+})
+
 let processingQueue = Promise.resolve()
 const warnedEditedMessages = new Set()
 
@@ -86,6 +93,11 @@ client.once(Events.ClientReady, (readyClient) => {
   }).catch((error) => {
     console.error(`Could not register guild commands: ${safeErrorMessage(error)}`)
   })
+  void weeklySalesReporter.start()
+})
+
+client.on(Events.ShardResume, () => {
+  void weeklySalesReporter.wake()
 })
 
 client.on(Events.MessageCreate, (message) => {
@@ -367,7 +379,7 @@ async function processManualAdd(message, parsed, requestId, game) {
 async function processStockReconciliation(message, parsed, requestId, game) {
   const catalog = game === 'MR' ? await loadMRCatalog(supabase) : await loadCatalog(supabase)
   const resolved = game === 'MR'
-    ? resolveMRItems(parsed.items, catalog, { combineDuplicates: false })
+    ? resolveMRItems(parsed.items, catalog, { allowSets: false, combineDuplicates: false })
     : { items: resolveStockItems(parsed.items, catalog.items) }
   const counts = game === 'MR'
     ? resolved.rpcItems.map(({ quantity, ...identity }) => ({ ...identity, counted_stock: quantity }))

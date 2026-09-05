@@ -26,6 +26,23 @@ const catalog = {
   }],
 }
 
+const productionSetCatalog = {
+  items: [
+    ...setComponents('candy', 'Candy Cane', 10, 40),
+    ...setComponents('dom', 'Dominus Infernus', 10, 40),
+    ...setComponents('inv', 'Inverted Royal', 10, 40),
+    ...setComponents('corr', 'Corrupted Royal', 10, 40),
+    ...setComponents('royal', 'Royal', 10, 40),
+  ],
+  setFamilies: [
+    setFamily('candy', 'Candy Cane'),
+    setFamily('dom', 'Dominus Infernus'),
+    setFamily('inv', 'Inverted Royal'),
+    setFamily('corr', 'Corrupted Royal'),
+    setFamily('royal', 'Royal'),
+  ],
+}
+
 test('confirmed MR set alias expands to one table and four chairs per set', () => {
   const result = resolveMRItems([{ name: 'test set', quantity: 2 }], catalog)
   assert.deepEqual(result.items.map(({ item, quantity }) => [item.id, quantity]), [
@@ -33,6 +50,48 @@ test('confirmed MR set alias expands to one table and four chairs per set', () =
     ['chair', 8],
   ])
   assert.deepEqual(result.rpcItems, [{ set_family_id: 'family', quantity: 2 }])
+})
+
+test('all confirmed production shorthand aliases and plural forms expand through canonical components', () => {
+  const cases = [
+    ['CANDY SET', 'candy'],
+    ['CANDY CANE SET', 'candy'],
+    ['DOM SET', 'dom'],
+    ['DOMINUS SET', 'dom'],
+    ['DOMINUS INFERNUS SET', 'dom'],
+    ['INV SET', 'inv'],
+    ['INVERTED SET', 'inv'],
+    ['INVERTED ROYAL SET', 'inv'],
+    ['CORR SET', 'corr'],
+    ['CORRUPTED SET', 'corr'],
+    ['CORRUPTED ROYAL SET', 'corr'],
+    ['ROYAL SET', 'royal'],
+  ]
+
+  for (const [alias, key] of cases) {
+    for (const spelling of [alias, alias.toLowerCase(), `${alias}S`]) {
+      const result = resolveMRSaleItems([{ name: spelling, quantity: 2 }], productionSetCatalog)
+      assert.deepEqual(result.items.map(({ item, quantity }) => [item.id, quantity]), [
+        [`${key}-table`, 2],
+        [`${key}-chair`, 8],
+      ])
+      assert.deepEqual(result.rpcItems, [{ set_family_id: `${key}-family`, quantity: 2 }])
+    }
+  }
+})
+
+test('required Corrupted Royal and Dominus shorthand examples expand exactly', () => {
+  const corrupted = resolveMRSaleItems([{ name: 'CORRUPTED SET', quantity: 1 }], productionSetCatalog)
+  assert.deepEqual(corrupted.items.map(({ item, quantity }) => [item.name, quantity]), [
+    ['Corrupted Royal Table', 1],
+    ['Corrupted Royal Chair', 4],
+  ])
+
+  const dominus = resolveMRSaleItems([{ name: 'DOM SET', quantity: 2 }], productionSetCatalog)
+  assert.deepEqual(dominus.items.map(({ item, quantity }) => [item.name, quantity]), [
+    ['Dominus Infernus Table', 2],
+    ['Dominus Infernus Chair', 8],
+  ])
 })
 
 test('MR resolution uses only canonical names and explicitly stored aliases', () => {
@@ -53,6 +112,21 @@ test('MR sale rejects insufficient component stock after set expansion', () => {
   )
 })
 
+test('insufficient set stock rejects without partially mutating the catalog snapshot', () => {
+  const limited = structuredClone(productionSetCatalog)
+  limited.items.find(({ id }) => id === 'corr-chair').current_quantity = 3
+  const before = structuredClone(limited)
+
+  assert.throws(
+    () => resolveMRSaleItems([{ name: 'corr set', quantity: 1 }], limited),
+    (error) => error instanceof InsufficientStockError
+      && error.itemName === 'Corrupted Royal Chair'
+      && error.required === 4
+      && error.available === 3,
+  )
+  assert.deepEqual(limited, before)
+})
+
 test('MR STOCK rejects overlapping expanded component counts', () => {
   assert.throws(
     () => resolveMRItems([
@@ -60,6 +134,17 @@ test('MR STOCK rejects overlapping expanded component counts', () => {
       { name: 'Test Table', quantity: 2 },
     ], catalog, { combineDuplicates: false }),
     DuplicateItemError,
+  )
+})
+
+test('MR STOCK rejects set aliases because exact reconciliation requires component counts', () => {
+  assert.throws(
+    () => resolveMRItems(
+      [{ name: 'CORR SET', quantity: 1 }],
+      productionSetCatalog,
+      { allowSets: false, combineDuplicates: false },
+    ),
+    UnknownItemError,
   )
 })
 
@@ -73,3 +158,34 @@ test('MR trade never permits the same expanded component on both sides', () => {
     TradeValidationError,
   )
 })
+
+function setComponents(key, name, tables, chairs) {
+  return [
+    {
+      id: `${key}-table`,
+      name: `${name} Table`,
+      current_quantity: tables,
+      is_archived: false,
+      aliases: [],
+    },
+    {
+      id: `${key}-chair`,
+      name: `${name} Chair`,
+      current_quantity: chairs,
+      is_archived: false,
+      aliases: [],
+    },
+  ]
+}
+
+function setFamily(key, name) {
+  return {
+    id: `${key}-family`,
+    name,
+    aliases: [`${name} Set`],
+    table_item_id: `${key}-table`,
+    chair_item_id: `${key}-chair`,
+    chairs_per_set: 4,
+    active: true,
+  }
+}

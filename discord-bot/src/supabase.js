@@ -218,6 +218,76 @@ export async function loadFinancialHistoryRecords(supabase, game = 'RAR') {
   })
 }
 
+export async function loadWeeklySalesRecords(supabase, { startInclusive, endExclusive }, game = 'RAR') {
+  return withSupabaseAuthRetry(supabase, `${game} weekly sales report load`, async () => {
+    const prefix = game === 'MR' ? 'mr' : 'rar'
+    const sales = await loadAllFinancialRows(() => supabase
+      .from(`${prefix}_sales`)
+      .select('id,sold_at,platform,net_credit,platform_fee,currency')
+      .gte('sold_at', startInclusive)
+      .lt('sold_at', endExclusive)
+      .order('sold_at')
+      .order('id'), `${game} weekly sales`)
+    const saleItems = []
+
+    for (let offset = 0; offset < sales.length; offset += 200) {
+      const saleIds = sales.slice(offset, offset + 200).map(({ id }) => id)
+      saleItems.push(...await loadAllFinancialRows(() => supabase
+        .from(`${prefix}_sale_items`)
+        .select(`id,sale_id,item_id,quantity,item:${prefix}_items(name)`)
+        .in('sale_id', saleIds)
+        .order('id'), `${game} weekly sale items`))
+    }
+
+    return { sales, saleItems }
+  })
+}
+
+export async function claimDiscordReportDelivery(
+  supabase,
+  { reportType, range, channelId, claimToken },
+  options,
+) {
+  const data = await callRpcWithRetry(supabase, 'claim_discord_report_delivery', {
+    p_report_type: reportType,
+    p_period_start: range.startInclusive,
+    p_period_end: range.endExclusive,
+    p_discord_channel_id: channelId,
+    p_claim_token: claimToken,
+    p_lease_seconds: 300,
+  }, options)
+  const result = Array.isArray(data) ? data[0] : data
+  if (!result) throw new Error('claim_discord_report_delivery returned no delivery state.')
+  return {
+    claimed: result.claimed === true,
+    deliveryStatus: result.delivery_status,
+    messageId: result.discord_message_id || null,
+  }
+}
+
+export async function markDiscordReportDeliverySent(
+  supabase,
+  { startInclusive, endExclusive, claimToken, messageId },
+  options,
+) {
+  const data = await callRpcWithRetry(supabase, 'mark_discord_report_delivery_sent', {
+    p_report_type: 'weekly_sales',
+    p_period_start: startInclusive,
+    p_period_end: endExclusive,
+    p_claim_token: claimToken,
+    p_discord_message_id: messageId,
+  }, options)
+  const result = Array.isArray(data) ? data[0] : data
+  if (!result || result.delivery_status !== 'sent') {
+    throw new Error('mark_discord_report_delivery_sent did not confirm delivery.')
+  }
+  return {
+    marked: result.marked === true,
+    deliveryStatus: result.delivery_status,
+    messageId: result.discord_message_id,
+  }
+}
+
 export function recordSale(supabase, payload, options) {
   return callRpcWithRetry(supabase, 'rar_record_sale', payload, options)
 }
