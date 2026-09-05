@@ -28,7 +28,7 @@ import {
 import { registerGuildCommands } from './command-registration.js'
 import { buildHelpPages } from './help.js'
 import { resolveMRItems, resolveMRSaleItems, resolveMRTradeItems } from './mr-catalog.js'
-import { parseMRSaleItemSequence } from './mr-sale-parser.js'
+import { parseMRItemSequence } from './mr-item-parser.js'
 import { processMonthlyHistoryInteraction, processMonthlyInteraction } from './monthly-command.js'
 import { detectSaleGame, isSaleMessage, parseSaleMessage, SaleParseError } from './parser.js'
 import { discordRequestId } from './request-id.js'
@@ -184,7 +184,7 @@ async function processDiscordSale(message, { isEdit }) {
     const catalog = game === 'MR' ? await loadMRCatalog(supabase) : await loadCatalog(supabase)
     const parsed = parseSaleMessage(message.content, {
       itemParser: game === 'MR'
-        ? (itemText) => parseMRSaleItemSequence(itemText, catalog)
+        ? (itemText) => parseMRItemSequence(itemText, catalog)
         : undefined,
     })
     const platform = resolvePlatform(parsed.platform, catalog.platforms)
@@ -237,7 +237,13 @@ async function processDiscordAcquisition(message, { isEdit, game }) {
     const route = routeDiscordMessage(message.channelId, message.content, config)
     if (!operation || route?.kind !== 'operation' || route.game !== game) return
 
-    const parsed = parseAcquisitionMessage(message.content)
+    const usesNaturalMRItems = game === 'MR' && ['purchase', 'trade', 'manual_add'].includes(operation)
+    const catalog = usesNaturalMRItems ? await loadMRCatalog(supabase) : null
+    const parsed = parseAcquisitionMessage(message.content, {
+      itemParser: usesNaturalMRItems
+        ? (itemText) => parseMRItemSequence(itemText, catalog)
+        : undefined,
+    })
     const requestId = requestIdFor(message, parsed.type)
     const existing = await findRecordedInventoryOperation(supabase, [requestId], game)
     if (existing) {
@@ -249,10 +255,10 @@ async function processDiscordAcquisition(message, { isEdit, game }) {
       return
     }
 
-    if (parsed.type === 'purchase') await processPurchase(message, parsed, requestId, game)
+    if (parsed.type === 'purchase') await processPurchase(message, parsed, requestId, game, catalog)
     else if (parsed.type === 'farm') await processFarm(message, parsed, requestId)
-    else if (parsed.type === 'trade') await processTrade(message, parsed, requestId, game)
-    else if (parsed.type === 'manual_add') await processManualAdd(message, parsed, requestId, game)
+    else if (parsed.type === 'trade') await processTrade(message, parsed, requestId, game, catalog)
+    else if (parsed.type === 'manual_add') await processManualAdd(message, parsed, requestId, game, catalog)
     else await processStockReconciliation(message, parsed, requestId, game)
   } catch (error) {
     const label = operationLabel(operation)
@@ -261,8 +267,8 @@ async function processDiscordAcquisition(message, { isEdit, game }) {
   }
 }
 
-async function processPurchase(message, parsed, requestId, game) {
-  const catalog = game === 'MR' ? await loadMRCatalog(supabase) : await loadCatalog(supabase)
+async function processPurchase(message, parsed, requestId, game, preloadedCatalog = null) {
+  const catalog = preloadedCatalog || (game === 'MR' ? await loadMRCatalog(supabase) : await loadCatalog(supabase))
   const resolved = game === 'MR'
     ? resolveMRItems(parsed.items, catalog)
     : { items: resolvePurchaseItems(parsed.items, catalog.items) }
@@ -324,8 +330,8 @@ async function processFarm(message, parsed, requestId) {
   ].join('\n'))
 }
 
-async function processTrade(message, parsed, requestId, game) {
-  const catalog = game === 'MR' ? await loadMRCatalog(supabase) : await loadCatalog(supabase)
+async function processTrade(message, parsed, requestId, game, preloadedCatalog = null) {
+  const catalog = preloadedCatalog || (game === 'MR' ? await loadMRCatalog(supabase) : await loadCatalog(supabase))
   const resolved = game === 'MR'
     ? resolveMRTradeItems(parsed.giveItems, parsed.receiveItems, catalog)
     : resolveTradeItems(parsed.giveItems, parsed.receiveItems, catalog.items)
@@ -356,8 +362,8 @@ async function processTrade(message, parsed, requestId, game) {
   ].join('\n'))
 }
 
-async function processManualAdd(message, parsed, requestId, game) {
-  const catalog = game === 'MR' ? await loadMRCatalog(supabase) : await loadCatalog(supabase)
+async function processManualAdd(message, parsed, requestId, game, preloadedCatalog = null) {
+  const catalog = preloadedCatalog || (game === 'MR' ? await loadMRCatalog(supabase) : await loadCatalog(supabase))
   const resolved = game === 'MR'
     ? resolveMRItems(parsed.items, catalog)
     : { items: resolveManualAddItems(parsed.items, catalog.items) }

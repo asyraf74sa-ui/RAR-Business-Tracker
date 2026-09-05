@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { APPROVED_MR_CATALOG, APPROVED_MR_SET_FAMILIES } from '../fixtures/approved-mr-catalog.js'
+import { parseAcquisitionMessage } from '../src/acquisition-parser.js'
 import { AmbiguousItemError, UnknownItemError } from '../src/catalog.js'
 import { resolveMRItems, resolveMRSaleItems } from '../src/mr-catalog.js'
+import { parseMRItemSequence } from '../src/mr-item-parser.js'
 import { MRItemParseError, parseMRSaleItemSequence } from '../src/mr-sale-parser.js'
 import { parseSaleMessage, SaleParseError } from '../src/parser.js'
 
@@ -67,6 +69,82 @@ ITEMKU`, {
     { item_id: 'gems', quantity: 50_000_000 },
     { set_family_id: 'dom-family', quantity: 1 },
   ])
+  assert.deepEqual(catalog, before)
+})
+
+test('one natural MR parser handles sale, add, purchase, and both trade sides', () => {
+  const parseItems = (itemText) => parseMRItemSequence(itemText, catalog)
+  assert.equal(parseMRSaleItemSequence, parseMRItemSequence)
+
+  for (const [command, expected] of [
+    ['MR ADD - 1M', [{ item_id: 'gems', quantity: 1_000_000 }]],
+    ['MR ADD - 400M GEMS', [{ item_id: 'gems', quantity: 400_000_000 }]],
+    ['MR ADD - 400MGEMS', [{ item_id: 'gems', quantity: 400_000_000 }]],
+    ['MR ADD - 400 M GEMS', [{ item_id: 'gems', quantity: 400_000_000 }]],
+    ['MR ADD - 1GXMAS', [{ item_id: 'gxmas', quantity: 1 }]],
+    ['MR ADD - 3LUXTRAY', [{ item_id: 'luxtray', quantity: 3 }]],
+    ['MR ADD - 1DOM', [{ set_family_id: 'dom-family', quantity: 1 }]],
+    ['MR ADD - 2CORR', [{ set_family_id: 'corr-family', quantity: 2 }]],
+    ['MR ADD - 1GXMAS 3LUXTRAY 50M GEMS 1DOM', [
+      { item_id: 'gxmas', quantity: 1 },
+      { item_id: 'luxtray', quantity: 3 },
+      { item_id: 'gems', quantity: 50_000_000 },
+      { set_family_id: 'dom-family', quantity: 1 },
+    ]],
+  ]) {
+    const add = parseAcquisitionMessage(command, { itemParser: parseItems })
+    assert.deepEqual(resolveMRItems(add.items, catalog).rpcItems, expected, command)
+  }
+
+  const purchase = parseAcquisitionMessage('MR PURCHASE - 50MGEMS 1MOAI\n25 USD', { itemParser: parseItems })
+  assert.deepEqual(purchase.cost, { amount: 25, currency: 'USD' })
+  assert.deepEqual(resolveMRItems(purchase.items, catalog).rpcItems, [
+    { item_id: 'gems', quantity: 50_000_000 },
+    { item_id: 'moai', quantity: 1 },
+  ])
+
+  const trade = parseAcquisitionMessage('MR TRADE\nGIVE - 1DOM 2GXMAS\nRECEIVE - 3MOAI 1ROYAL', { itemParser: parseItems })
+  assert.deepEqual(trade.giveItems, [
+    { name: 'Dominus Infernus', quantity: 1 },
+    { name: 'Golden Christmas Tree', quantity: 2 },
+  ])
+  assert.deepEqual(trade.receiveItems, [
+    { name: 'Moai Statue', quantity: 3 },
+    { name: 'Royal', quantity: 1 },
+  ])
+})
+
+test('MR STOCK bypasses natural aliases and dangerous set shorthand', () => {
+  const stock = parseAcquisitionMessage('MR STOCK - 1 DOM', {
+    itemParser: (itemText) => parseMRItemSequence(itemText, catalog),
+  })
+  assert.deepEqual(stock.items, [{ name: 'DOM', quantity: 1 }])
+  assert.throws(
+    () => resolveMRItems(stock.items, catalog, {
+      allowSets: false,
+      allowShorthand: false,
+      combineDuplicates: false,
+    }),
+    UnknownItemError,
+  )
+})
+
+test('natural MR operation parsing rejects malformed bundles and unsafe quantities before resolution', () => {
+  const before = structuredClone(catalog)
+  assert.throws(
+    () => parseAcquisitionMessage('MR ADD - 1GXMAS 2 NOT A REAL ITEM', {
+      itemParser: (itemText) => parseMRItemSequence(itemText, catalog),
+    }),
+    (error) => error instanceof MRItemParseError
+      && error.token === 'NOT'
+      && /Recognized before failure:\n1x Golden Christmas Tree/.test(error.message),
+  )
+  for (const itemText of ['-1GXMAS', '1.5GXMAS', '9007199254740992GXMAS']) {
+    assert.throws(() => parseMRItemSequence(itemText, catalog), /Invalid MR item quantity/)
+  }
+  assert.throws(() => parseAcquisitionMessage('MR PURCHASE - 1GXMAS', {
+    itemParser: (itemText) => parseMRItemSequence(itemText, catalog),
+  }), /one item line and one total cost line/)
   assert.deepEqual(catalog, before)
 })
 

@@ -21,7 +21,7 @@ export class MRItemParseError extends SaleParseError {
   }
 }
 
-export function parseMRSaleItemSequence(itemText, catalog) {
+export function parseMRItemSequence(itemText, catalog) {
   const tokens = tokenize(itemText)
   if (tokens.length === 0) throw new SaleParseError('No sale items were found.')
 
@@ -106,7 +106,7 @@ function tokenize(value) {
 
 function parsePositiveQuantity(token, recognized) {
   const quantity = Number(token.normalized)
-  if (!Number.isFinite(quantity) || quantity <= 0) {
+  if (!Number.isSafeInteger(quantity) || quantity <= 0) {
     throw new MRItemParseError(
       token.raw,
       recognized,
@@ -115,6 +115,9 @@ function parsePositiveQuantity(token, recognized) {
   }
   return quantity
 }
+
+// Backward-compatible name for callers/tests that predate the shared MR operation parser.
+export const parseMRSaleItemSequence = parseMRItemSequence
 
 function consumeMillion(tokens, cursor) {
   const token = tokens[cursor]

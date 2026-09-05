@@ -284,6 +284,8 @@ code { font-size: 0.82em; background: rgba(0,0,0,.06); padding: 2px 5px; border-
 .stocktake-row small, .stocktake-row__count > span { color: var(--muted-2); font-size: .6rem; }
 .stocktake-row__count { display: grid; gap: 4px; }
 .stocktake-row__count input { min-height: 36px; padding: 7px 9px; }
+.stocktake-row__count input[aria-invalid="true"] { border-color: var(--red); box-shadow: 0 0 0 2px color-mix(in srgb, var(--red) 18%, transparent); }
+.mr-currency-icons { display: inline-flex; align-items: center; gap: 7px; }
 .stocktake-row__difference { text-align: right; }
 .stocktake-row__difference strong { font-size: .77rem; }
 .stocktake-row__difference.is-positive strong, .text-positive { color: var(--green); }

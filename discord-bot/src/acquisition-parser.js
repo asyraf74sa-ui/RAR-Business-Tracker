@@ -22,21 +22,21 @@ export function detectAcquisitionGame(content) {
   return match ? match[1].toUpperCase() : null
 }
 
-export function parseAcquisitionMessage(content) {
+export function parseAcquisitionMessage(content, { itemParser = parseItemList } = {}) {
   const game = detectAcquisitionGame(content)
   const operation = detectAcquisitionOperation(content)
   if (game === 'MR' && operation === 'farm') {
     throw new AcquisitionParseError('MR FARM is not supported. Use MR PURCHASE, MR TRADE, MR ADD, or MR STOCK.')
   }
-  if (operation === 'purchase') return { game, ...parsePurchaseMessage(content) }
+  if (operation === 'purchase') return { game, ...parsePurchaseMessage(content, { itemParser }) }
   if (operation === 'farm') return { game, ...parseFarmMessage(content) }
-  if (operation === 'trade') return { game, ...parseTradeMessage(content) }
-  if (operation === 'manual_add') return { game, ...parseAddMessage(content) }
+  if (operation === 'trade') return { game, ...parseTradeMessage(content, { itemParser }) }
+  if (operation === 'manual_add') return { game, ...parseAddMessage(content, { itemParser }) }
   if (operation === 'stock_reconcile') return { game, ...parseStockMessage(content) }
   throw new AcquisitionParseError('Expected a supported RAR or MR operation command.')
 }
 
-export function parseAddMessage(content) {
+export function parseAddMessage(content, { itemParser = parseItemList } = {}) {
   const lines = nonEmptyLines(content)
   if (lines.length !== 1) throw new AcquisitionParseError('ADD must be written on one line.')
 
@@ -45,7 +45,7 @@ export function parseAddMessage(content) {
 
   return {
     type: 'manual_add',
-    items: parseItemList(header[1]),
+    items: itemParser(header[1]),
   }
 }
 
@@ -62,7 +62,7 @@ export function parseStockMessage(content) {
   }
 }
 
-export function parsePurchaseMessage(content) {
+export function parsePurchaseMessage(content, { itemParser = parseItemList } = {}) {
   const lines = nonEmptyLines(content)
   if (lines.length !== 2) {
     throw new AcquisitionParseError('A purchase needs one item line and one total cost line.')
@@ -73,7 +73,7 @@ export function parsePurchaseMessage(content) {
 
   return {
     type: 'purchase',
-    items: parseItemList(header[1]),
+    items: itemParser(header[1]),
     cost: parseCashAmount(lines[1]),
   }
 }
@@ -92,7 +92,7 @@ export function parseFarmMessage(content) {
   return { type: 'farm', cycles }
 }
 
-export function parseTradeMessage(content) {
+export function parseTradeMessage(content, { itemParser = parseItemList } = {}) {
   const lines = nonEmptyLines(content)
   if (lines.length !== 3 || !/^(?:RAR|MR)\s+TRADE\s*:?\s*$/i.test(lines[0])) {
     throw new AcquisitionParseError('A trade needs a RAR TRADE or MR TRADE header, GIVE, and RECEIVE lines.')
@@ -106,8 +106,8 @@ export function parseTradeMessage(content) {
 
   return {
     type: 'trade',
-    giveItems: parseItemList(give[1]),
-    receiveItems: parseItemList(receive[1]),
+    giveItems: itemParser(give[1]),
+    receiveItems: itemParser(receive[1]),
   }
 }
 
