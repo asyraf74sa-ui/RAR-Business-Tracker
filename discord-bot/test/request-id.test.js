@@ -12,7 +12,7 @@ test('the same Discord message always produces the same request UUID', () => {
   assert.match(first, /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
 })
 
-test('acquisition operation types are stable and distinct without changing sale IDs', () => {
+test('operation types, including expenses, are stable and distinct without changing sale IDs', () => {
   const message = { guildId: '123', channelId: '456', messageId: '789' }
   const sale = discordRequestId(message)
   const purchase = discordRequestId({ ...message, operationType: 'purchase' })
@@ -20,11 +20,13 @@ test('acquisition operation types are stable and distinct without changing sale 
   const trade = discordRequestId({ ...message, operationType: 'trade' })
   const manualAdd = discordRequestId({ ...message, operationType: 'manual_add' })
   const stockReconcile = discordRequestId({ ...message, operationType: 'stock_reconcile' })
+  const expense = discordRequestId({ ...message, operationType: 'expense' })
 
   assert.equal(purchase, discordRequestId({ ...message, operationType: 'PURCHASE' }))
   assert.equal(manualAdd, discordRequestId({ ...message, operationType: 'MANUAL_ADD' }))
   assert.equal(stockReconcile, discordRequestId({ ...message, operationType: 'stock_reconcile' }))
-  assert.equal(new Set([sale, purchase, farm, trade, manualAdd, stockReconcile]).size, 6)
+  assert.equal(expense, discordRequestId({ ...message, operationType: 'EXPENSE' }))
+  assert.equal(new Set([sale, purchase, farm, trade, manualAdd, stockReconcile, expense]).size, 7)
 })
 
 test('different Discord message IDs produce different request UUIDs', () => {

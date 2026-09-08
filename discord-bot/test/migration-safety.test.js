@@ -26,6 +26,48 @@ const weeklyReportsPrivilegesSql = readFileSync(
   new URL('../../supabase/migrations/20260905074500_weekly_discord_reports_least_privilege.sql', import.meta.url),
   'utf8',
 )
+const expenseSql = readFileSync(
+  new URL('../../supabase/migrations/20260908085423_business_expense_ledger.sql', import.meta.url),
+  'utf8',
+)
+const expensePrivilegesSql = readFileSync(
+  new URL('../../supabase/migrations/20260908090237_harden_business_expense_rpc_access.sql', import.meta.url),
+  'utf8',
+)
+
+test('business expense ledger is user-owned, RLS protected, currency-safe, and read-only outside RPCs', () => {
+  assert.match(expenseSql, /create table public\.business_expenses/i)
+  assert.match(expenseSql, /workspace in \('RAR', 'MR', 'SHARED'\)/i)
+  assert.match(expenseSql, /currency in \('USD', 'MYR', 'PHP', 'IDR'\)/i)
+  assert.match(expenseSql, /unique \(user_id, request_id\)/i)
+  assert.match(expenseSql, /alter table public\.business_expenses enable row level security/i)
+  assert.match(expenseSql, /for select[\s\S]+?auth\.uid\(\)[\s\S]+?user_id/i)
+  assert.match(expenseSql, /revoke all on table public\.business_expenses from public, anon, authenticated/i)
+  assert.match(expenseSql, /grant select on table public\.business_expenses to authenticated/i)
+  assert.doesNotMatch(expenseSql, /grant (?:insert|update|delete).*business_expenses to authenticated/i)
+})
+
+test('expense writes are idempotent authenticated RPCs with private validation and no inventory effect', () => {
+  const start = expenseSql.indexOf('create or replace function private.record_business_expense')
+  const end = expenseSql.indexOf('create or replace function private.update_business_expense', start)
+  const recordSql = expenseSql.slice(start, end)
+  assert.match(recordSql, /security definer/i)
+  assert.match(recordSql, /auth\.uid\(\)/i)
+  assert.match(recordSql, /pg_advisory_xact_lock/i)
+  assert.match(recordSql, /Request ID was already used for a different expense/i)
+  assert.match(expensePrivilegesSql, /alter function public\.record_business_expense[\s\S]+?security invoker/i)
+  assert.match(expensePrivilegesSql, /grant execute on function private\.record_business_expense[\s\S]+?to authenticated/i)
+  assert.doesNotMatch(expenseSql, /(?:insert into|update|delete from) public\.(?:rar|mr)_(?:items|sales|sale_items|inventory_events)/i)
+})
+
+test('expense edits are audited and deletion is a one-way soft void', () => {
+  assert.match(expenseSql, /create table private\.business_expense_audit/i)
+  assert.match(expenseSql, /action in \('created', 'updated', 'voided'\)/i)
+  assert.match(expenseSql, /Voided expenses cannot be changed/i)
+  assert.match(expenseSql, /set voided_at = now\(\), void_reason = v_reason/i)
+  assert.doesNotMatch(expenseSql, /delete from public\.business_expenses/i)
+  assert.match(expensePrivilegesSql, /No client access to business expense audit/i)
+})
 
 test('acquisition RPCs preserve authenticated invoker isolation', () => {
   assert.match(sql, /rar_record_purchase_bundle[\s\S]+?security invoker[\s\S]+?auth\.uid\(\)/i)

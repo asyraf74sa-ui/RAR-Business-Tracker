@@ -151,6 +151,18 @@ export async function findRecordedInventoryOperation(supabase, requestIds, game 
   })
 }
 
+export async function findRecordedBusinessExpense(supabase, requestId) {
+  return withSupabaseAuthRetry(supabase, 'existing business expense check', async () => {
+    const { data, error } = await supabase
+      .from('business_expenses')
+      .select('id,workspace,voided_at')
+      .eq('request_id', requestId)
+      .maybeSingle()
+    if (error) throw databaseError('Could not check for an existing business expense', error)
+    return data || null
+  })
+}
+
 export async function loadInventoryEvents(supabase, requestId, game = 'RAR') {
   return withSupabaseAuthRetry(supabase, `${game} inventory result load`, async () => {
     const table = game === 'MR' ? 'mr_inventory_events' : 'rar_inventory_events'
@@ -169,7 +181,7 @@ export async function loadInventoryEvents(supabase, requestId, game = 'RAR') {
 export async function loadMonthlyFinancialRecords(supabase, { startInclusive, endExclusive }, game = 'RAR') {
   return withSupabaseAuthRetry(supabase, `${game} monthly report load`, async () => {
     const prefix = game === 'MR' ? 'mr' : 'rar'
-    const [sales, inventoryEvents] = await Promise.all([
+    const [sales, inventoryEvents, businessExpenses] = await Promise.all([
       loadAllFinancialRows(() => supabase
         .from(`${prefix}_sales`)
         .select('id,sold_at,platform,net_credit,platform_fee,currency,inventory_applied,classification')
@@ -188,16 +200,26 @@ export async function loadMonthlyFinancialRecords(supabase, { startInclusive, en
         .lt('event_at', endExclusive)
         .order('event_at')
         .order('id'), `${game} monthly purchases`),
+      loadAllFinancialRows(() => supabase
+        .from('business_expenses')
+        .select('id,incurred_at,workspace,amount,currency,category,voided_at')
+        .eq('workspace', game)
+        .is('voided_at', null)
+        .in('currency', FINANCIAL_CURRENCIES)
+        .gte('incurred_at', startInclusive)
+        .lt('incurred_at', endExclusive)
+        .order('incurred_at')
+        .order('id'), `${game} monthly operating expenses`),
     ])
 
-    return { sales, inventoryEvents }
+    return { sales, inventoryEvents, businessExpenses }
   })
 }
 
 export async function loadFinancialHistoryRecords(supabase, game = 'RAR') {
   return withSupabaseAuthRetry(supabase, `${game} monthly history load`, async () => {
     const prefix = game === 'MR' ? 'mr' : 'rar'
-    const [sales, inventoryEvents] = await Promise.all([
+    const [sales, inventoryEvents, businessExpenses] = await Promise.all([
       loadAllFinancialRows(() => supabase
         .from(`${prefix}_sales`)
         .select('id,sold_at,platform,net_credit,platform_fee,currency,inventory_applied,classification')
@@ -212,9 +234,17 @@ export async function loadFinancialHistoryRecords(supabase, game = 'RAR') {
         .in('cash_currency', FINANCIAL_CURRENCIES)
         .order('event_at')
         .order('id'), `${game} purchase history`),
+      loadAllFinancialRows(() => supabase
+        .from('business_expenses')
+        .select('id,incurred_at,workspace,amount,currency,category,voided_at')
+        .eq('workspace', game)
+        .is('voided_at', null)
+        .in('currency', FINANCIAL_CURRENCIES)
+        .order('incurred_at')
+        .order('id'), `${game} operating expense history`),
     ])
 
-    return { sales, inventoryEvents }
+    return { sales, inventoryEvents, businessExpenses }
   })
 }
 
@@ -330,6 +360,10 @@ export function addMRStockBundle(supabase, payload, options) {
 
 export function reconcileMRStockBundle(supabase, payload, options) {
   return callRpcWithRetry(supabase, 'mr_reconcile_stock_batch', payload, options)
+}
+
+export function recordBusinessExpense(supabase, payload, options) {
+  return callRpcWithRetry(supabase, 'record_business_expense', payload, options)
 }
 
 export async function callRpcWithRetry(supabase, functionName, payload, { attempts = 3 } = {}) {
@@ -508,7 +542,7 @@ function isRecoverableAuthError(error) {
   if (/authentication required|not authenticated|no active session|refresh[_ ]token.*(?:not found|revoked|reuse)/i.test(text)) return true
   if (/\bPGRST30[13]\b/i.test(text)) return true
 
-  return /permission denied for (?:table|function|sequence|schema)\s+(?:public\.)?(?:rar|mr)_[a-z0-9_]+/i.test(text)
+  return /permission denied for (?:table|function|sequence|schema)\s+(?:public\.)?(?:(?:rar|mr)_[a-z0-9_]+|business_expenses|record_business_expense)/i.test(text)
 }
 
 function isJwtIssuedInFuture(error) {

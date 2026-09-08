@@ -27,6 +27,7 @@ import {
 } from './catalog.js'
 import { registerGuildCommands } from './command-registration.js'
 import { buildHelpPages } from './help.js'
+import { ExpenseParseError, isExpenseMessage, parseExpenseMessage } from './expense-parser.js'
 import { resolveMRItems, resolveMRSaleItems, resolveMRTradeItems } from './mr-catalog.js'
 import { parseMRItemSequence } from './mr-item-parser.js'
 import { processMonthlyHistoryInteraction, processMonthlyInteraction } from './monthly-command.js'
@@ -43,6 +44,7 @@ import {
   claimFarmCycles,
   createBotSupabaseClient,
   findRecordedInventoryOperation,
+  findRecordedBusinessExpense,
   findRecordedSale,
   loadActiveItems,
   loadCatalog,
@@ -53,6 +55,7 @@ import {
   reconcileMRStockBundle,
   recordMRSale,
   recordMRTrade,
+  recordBusinessExpense,
   recordPurchaseBundle,
   reconcileStockBundle,
   recordSale,
@@ -156,12 +159,69 @@ async function processDiscordMessage(message, { isEdit }) {
   }
 
   if (message.channelId === config.DISCORD_ACQUISITION_CHANNEL_ID) {
+    const expenseRoute = routeDiscordMessage(message.channelId, message.content, config)?.kind === 'expense'
+    if ((expenseRoute || isEdit) && await processDiscordExpense(message, { isEdit })) return
     await processDiscordAcquisition(message, { isEdit, game: 'RAR' })
     return
   }
 
   if (message.channelId === config.DISCORD_MR_OPERATIONS_CHANNEL_ID) {
+    const expenseRoute = routeDiscordMessage(message.channelId, message.content, config)?.kind === 'expense'
+    if ((expenseRoute || isEdit) && await processDiscordExpense(message, { isEdit })) return
     await processDiscordAcquisition(message, { isEdit, game: 'MR' })
+  }
+}
+
+async function processDiscordExpense(message, { isEdit }) {
+  const looksLikeExpense = isExpenseMessage(message.content)
+  if (!looksLikeExpense && !isEdit) return false
+  const requestId = requestIdFor(message, 'expense')
+
+  try {
+    const existing = await findRecordedBusinessExpense(supabase, requestId)
+    if (existing) {
+      await warnAlreadyRecorded(message, { isEdit, recordKind: 'expense' })
+      return true
+    }
+    if (!looksLikeExpense) return false
+
+    const route = routeDiscordMessage(message.channelId, message.content, config)
+    if (route?.kind !== 'expense') return false
+    const parsed = parseExpenseMessage(message.content)
+    if (route.workspace !== parsed.workspace) return false
+
+    const result = await recordBusinessExpense(supabase, {
+      p_incurred_at: message.createdAt.toISOString(),
+      p_workspace: parsed.workspace,
+      p_amount: parsed.amount,
+      p_currency: parsed.currency,
+      p_description: parsed.description,
+      p_request_id: requestId,
+      p_category: parsed.category,
+      p_notes: `Recorded automatically from Discord expense message ${message.id}`,
+      p_source: 'discord',
+    })
+    const outcome = Array.isArray(result) ? result[0] : result
+    if (!outcome?.expense_id) throw new Error('Expense RPC returned an invalid result.')
+    if (outcome.duplicate) {
+      await warnAlreadyRecorded(message, { isEdit, recordKind: 'expense' })
+      return true
+    }
+
+    await safeReply(message, [
+      `✅ ${parsed.workspace === 'SHARED' ? 'Business' : parsed.workspace} Expense Recorded`,
+      '',
+      parsed.description,
+      `${parsed.currency} ${formatMoney(parsed.amount)}`,
+      `Category: ${parsed.category}`,
+      `Date: ${formatExpenseDate(message.createdAt)}`,
+    ].join('\n'))
+    return true
+  } catch (error) {
+    console.error(`Expense ${message.id} was not recorded: ${safeErrorMessage(error)}`)
+    const messageText = error instanceof ExpenseParseError ? error.message : userFacingError(error, 'expense')
+    await safeReply(message, `❌ Expense not recorded\n${messageText}`)
+    return true
   }
 }
 
@@ -568,6 +628,15 @@ function formatMoney(value) {
   return new Intl.NumberFormat('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
+  }).format(value)
+}
+
+function formatExpenseDate(value) {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kuala_Lumpur',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
   }).format(value)
 }
 

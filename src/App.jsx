@@ -9,6 +9,7 @@ import { readableError, supabase } from './lib/supabase.js'
 import { selectAllRows } from './lib/supabase-pagination.js'
 
 const Dashboard = lazy(() => import('./pages/Dashboard.jsx'))
+const Expenses = lazy(() => import('./pages/Expenses.jsx'))
 const AllBusinessHistory = lazy(() => import('./pages/AllBusinessHistory.jsx'))
 const Farming = lazy(() => import('./pages/Farming.jsx'))
 const Gems = lazy(() => import('./pages/Gems.jsx'))
@@ -30,6 +31,7 @@ const emptyData = {
   sales: [],
   saleItems: [],
   inventoryEvents: [],
+  businessExpenses: [],
   farmConfig: null,
   mr: {
     items: [],
@@ -109,6 +111,7 @@ export default function App() {
         selectAllRows(() => supabase.from('mr_sale_items').select('*').order('created_at', { ascending: false })),
         selectAllRows(() => supabase.from('mr_inventory_events').select('*').order('event_at', { ascending: false })),
         supabase.from('mr_item_prices').select('*').order('updated_at', { ascending: false }),
+        selectAllRows(() => supabase.from('business_expenses').select('*').order('incurred_at', { ascending: false })),
       ])
       const firstError = requests.find((response) => response.error)?.error
       if (firstError) throw firstError
@@ -120,6 +123,7 @@ export default function App() {
         sales: requests[2].data || [],
         saleItems: requests[3].data || [],
         inventoryEvents: requests[4].data || [],
+        businessExpenses: requests[13].data || [],
         farmConfig: requests[5].data || null,
         mr: {
           items: requests[6].data || [],
@@ -217,6 +221,7 @@ export default function App() {
     gems: <Gems {...pageProps} />,
     purchases: <Purchases {...pageProps} />,
     farming: <Farming {...pageProps} />,
+    expenses: <Expenses {...pageProps} scope="rar" />,
     history: <SalesHistory {...pageProps} />,
     settings: <Settings {...pageProps} />,
   }
@@ -225,11 +230,13 @@ export default function App() {
     inventory: <MRInventory {...pageProps} />,
     sale: <MRSale {...pageProps} />,
     operations: <MROperations {...pageProps} />,
+    expenses: <Expenses {...pageProps} scope="mr" />,
     history: <MRHistory {...pageProps} />,
     settings: <MRSettings {...pageProps} />,
   }
   const allPages = {
     dashboard: <UnifiedDashboard {...pageProps} scope="all" />,
+    expenses: <Expenses {...pageProps} scope="all" />,
     history: <AllBusinessHistory {...pageProps} />,
   }
   const pages = workspace === 'rar' ? rarPages : workspace === 'mr' ? mrPages : allPages

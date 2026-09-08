@@ -26,6 +26,22 @@ test('RAR and MR operations route only to their own channel', () => {
   })
 })
 
+test('expenses route to the correct ledger and shared expenses work in either operations channel', () => {
+  assert.deepEqual(routeDiscordMessage('rar-ops', 'RAR EXPENSE - CLOUD PHONE\n45 MYR', config), {
+    kind: 'expense', workspace: 'RAR',
+  })
+  assert.deepEqual(routeDiscordMessage('mr-ops', 'MR EXPENSE - SOFTWARE\n20 USD', config), {
+    kind: 'expense', workspace: 'MR',
+  })
+  for (const channel of ['rar-ops', 'mr-ops']) {
+    assert.deepEqual(routeDiscordMessage(channel, 'BUSINESS EXPENSE - DOMAIN\n60 MYR', config), {
+      kind: 'expense', workspace: 'SHARED',
+    })
+  }
+  assert.equal(routeDiscordMessage('sales', 'BUSINESS EXPENSE - DOMAIN\n60 MYR', config), null)
+  assert.equal(routeDiscordMessage('mr-ops', 'RAR EXPENSE - CLOUD PHONE\n45 MYR', config), null)
+})
+
 test('wrong-channel and cross-game operations are rejected', () => {
   assert.equal(routeDiscordMessage('sales', 'MR ADD - 1 ITEM', config), null)
   assert.equal(routeDiscordMessage('rar-ops', 'MR ADD - 1 ITEM', config), null)

@@ -14,6 +14,10 @@ function sale(id, soldAt, currency, netCredit, platformFee = 0) {
   return { id, sold_at: soldAt, currency, net_credit: netCredit, platform_fee: platformFee }
 }
 
+function expense(id, incurredAt, workspace, currency, amount, voidedAt = null) {
+  return { id, incurred_at: incurredAt, workspace, currency, amount, voided_at: voidedAt }
+}
+
 test('uses inclusive start and exclusive end for the current Malaysia month', () => {
   const rows = [
     sale('before', '2026-08-31T15:59:59.999Z', 'USD', 1),
@@ -93,6 +97,52 @@ test('uses net_credit directly and never subtracts platform_fee twice', () => {
   assert.equal(result.netTotals.USD, 80)
   assert.equal(result.feeTotals.USD, 20)
   assert.equal(result.grossTotals.USD, 100)
+})
+
+test('subtracts active operating expenses after acquisition cost without subtracting fees twice', () => {
+  const result = walletFinancialOverview(
+    [sale('sale', '2026-09-10T00:00:00.000Z', 'USD', 100, 15)],
+    [{ id: 'purchase', event_at: '2026-09-11T00:00:00.000Z', event_type: 'supplier_purchase', cash_amount: 30, cash_currency: 'USD' }],
+    { USD: 1 },
+    new Date('2026-09-15T00:00:00.000Z'),
+    [expense('expense', '2026-09-12T00:00:00.000Z', 'RAR', 'USD', 10)],
+  )
+  assert.equal(result.current.netTotals.USD, 100)
+  assert.equal(result.current.acquisitionTotals.USD, 30)
+  assert.equal(result.current.expenseTotals.USD, 10)
+  assert.equal(result.current.feeTotals.USD, 15)
+  assert.equal(result.current.profitTotals.USD, 60)
+  assert.notEqual(result.current.profitTotals.USD, 45)
+})
+
+test('includes operating expenses in current, previous, lifetime, and continuous monthly history', () => {
+  const expenses = [
+    expense('previous', '2026-08-10T00:00:00.000Z', 'RAR', 'MYR', 40),
+    expense('current', '2026-09-10T00:00:00.000Z', 'RAR', 'USD', 10),
+    expense('voided', '2026-09-11T00:00:00.000Z', 'RAR', 'USD', 999, '2026-09-12T00:00:00.000Z'),
+  ]
+  const result = walletFinancialOverview([], [], { MYR: 4 }, new Date('2026-09-15T00:00:00.000Z'), expenses)
+  assert.equal(result.current.expenseTotals.USD, 10)
+  assert.equal(result.current.profitTotals.USD, -10)
+  assert.equal(result.previous.expenseTotals.MYR, 40)
+  assert.deepEqual(result.lifetime.expenseTotals, { USD: 10, MYR: 40, PHP: 0, IDR: 0 })
+  assert.equal(result.lifetime.expenseUsd.total, 20)
+  assert.equal(result.lifetime.profitUsd.total, -20)
+  assert.equal(result.current.expenses.length, 1)
+})
+
+test('mixed-currency expense totals are summed by original currency before current-rate FX conversion', () => {
+  const expenses = [
+    expense('usd', '2026-09-10T00:00:00Z', 'SHARED', 'USD', 10),
+    expense('myr', '2026-09-10T00:00:00Z', 'SHARED', 'MYR', 40),
+    expense('php', '2026-09-10T00:00:00Z', 'SHARED', 'PHP', 600),
+    expense('idr', '2026-09-10T00:00:00Z', 'SHARED', 'IDR', 150000),
+  ]
+  const result = walletFinancialOverview([], [], { MYR: 4, PHP: 60, IDR: 15000 }, new Date('2026-09-15T00:00:00Z'), expenses)
+  assert.deepEqual(result.current.expenseTotals, { USD: 10, MYR: 40, PHP: 600, IDR: 150000 })
+  assert.equal(result.current.expenseUsd.total, 40)
+  assert.equal(result.current.expenseUsd.approximate, true)
+  assert.equal(result.current.profitUsd.total, -40)
 })
 
 test('handles a zero-sales current month', () => {

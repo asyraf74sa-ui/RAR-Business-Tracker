@@ -88,13 +88,16 @@ function emptyPeriodFinancials(period) {
     period,
     sales: [],
     purchaseEvents: [],
+    expenses: [],
     netTotals: emptyCurrencyRecord(),
     acquisitionTotals: emptyCurrencyRecord(),
+    expenseTotals: emptyCurrencyRecord(),
     profitTotals: emptyCurrencyRecord(),
     feeTotals: emptyCurrencyRecord(),
     grossTotals: emptyCurrencyRecord(),
     saleCountByCurrency: emptyCurrencyRecord(),
     purchaseCountByCurrency: emptyCurrencyRecord(),
+    expenseCountByCurrency: emptyCurrencyRecord(),
   }
 }
 
@@ -122,9 +125,21 @@ function addAcquisition(financials, event) {
   financials.purchaseCountByCurrency[currency] += 1
 }
 
+function addExpense(financials, expense) {
+  if (expense.voided_at) return
+  const currency = String(expense.currency || '').toUpperCase()
+  if (!(currency in financials.expenseTotals)) return
+
+  financials.expenses.push(expense)
+  financials.expenseTotals[currency] += finiteNumber(expense.amount)
+  financials.expenseCountByCurrency[currency] += 1
+}
+
 function finalizeFinancials(financials) {
   CURRENCIES.forEach((currency) => {
-    financials.profitTotals[currency] = financials.netTotals[currency] - financials.acquisitionTotals[currency]
+    financials.profitTotals[currency] = financials.netTotals[currency]
+      - financials.acquisitionTotals[currency]
+      - financials.expenseTotals[currency]
   })
   return financials
 }
@@ -168,17 +183,29 @@ export function filterInventoryEventsForPeriod(inventoryEvents, period) {
   })
 }
 
-export function currentMonthFinancials(sales, inventoryEvents = [], now = new Date()) {
+export function filterBusinessExpensesForPeriod(businessExpenses, period) {
+  const start = period.startInclusive.getTime()
+  const end = period.endExclusive.getTime()
+
+  return businessExpenses.filter((expense) => {
+    const incurredAt = new Date(expense.incurred_at).getTime()
+    return !expense.voided_at && Number.isFinite(incurredAt) && incurredAt >= start && incurredAt < end
+  })
+}
+
+export function currentMonthFinancials(sales, inventoryEvents = [], now = new Date(), businessExpenses = []) {
   const period = malaysiaMonthPeriod(now)
   const currentSales = filterSalesForPeriod(sales, period)
   const currentInventoryEvents = filterInventoryEventsForPeriod(inventoryEvents, period)
+  const currentExpenses = filterBusinessExpensesForPeriod(businessExpenses, period)
   const financials = emptyPeriodFinancials(period)
   currentSales.forEach((sale) => addSale(financials, sale))
   currentInventoryEvents.forEach((event) => addAcquisition(financials, event))
+  currentExpenses.forEach((expense) => addExpense(financials, expense))
   return finalizeFinancials(financials)
 }
 
-export function monthlyFinancialHistory(sales, inventoryEvents = [], now = new Date()) {
+export function monthlyFinancialHistory(sales, inventoryEvents = [], now = new Date(), businessExpenses = []) {
   const currentPeriod = malaysiaMonthPeriod(now)
   const grouped = new Map()
   let earliestKey = currentPeriod.key
@@ -215,6 +242,20 @@ export function monthlyFinancialHistory(sales, inventoryEvents = [], now = new D
     grouped.set(period.key, financials)
   })
 
+  businessExpenses.forEach((expense) => {
+    const coordinates = malaysiaMonthCoordinates(expense.incurred_at)
+    const currency = String(expense.currency || '').toUpperCase()
+    if (expense.voided_at || !coordinates || !CURRENCIES.includes(currency)) return
+
+    const period = monthPeriod(coordinates.year, coordinates.monthIndex)
+    if (period.key > currentPeriod.key) return
+    if (period.key < earliestKey) earliestKey = period.key
+
+    const financials = grouped.get(period.key) || emptyPeriodFinancials(period)
+    addExpense(financials, expense)
+    grouped.set(period.key, financials)
+  })
+
   const months = []
   let offset = 0
   while (true) {
@@ -248,8 +289,8 @@ export function compareUsdTotals(currentTotal, previousTotal) {
   }
 }
 
-export function walletFinancialOverview(sales, inventoryEvents, rates, now = new Date()) {
-  const months = monthlyFinancialHistory(sales, inventoryEvents, now)
+export function walletFinancialOverview(sales, inventoryEvents, rates, now = new Date(), businessExpenses = []) {
+  const months = monthlyFinancialHistory(sales, inventoryEvents, now, businessExpenses)
   const current = months[0]
   const previousPeriod = shiftMalaysiaMonth(now, -1)
   const previous = months.find(({ period }) => period.key === previousPeriod.key)
@@ -266,9 +307,13 @@ export function walletFinancialOverview(sales, inventoryEvents, rates, now = new
     (totals, month) => addCurrencyTotals(totals, month.feeTotals),
     emptyCurrencyRecord(),
   )
+  const lifetimeExpenseTotals = months.reduce(
+    (totals, month) => addCurrencyTotals(totals, month.expenseTotals),
+    emptyCurrencyRecord(),
+  )
   const lifetimeProfitTotals = Object.fromEntries(CURRENCIES.map((currency) => [
     currency,
-    lifetimeNetTotals[currency] - lifetimeAcquisitionTotals[currency],
+    lifetimeNetTotals[currency] - lifetimeAcquisitionTotals[currency] - lifetimeExpenseTotals[currency],
   ]))
 
   const currentUsd = convertCurrencyTotalsToUsd(current.netTotals, rates)
@@ -279,6 +324,7 @@ export function walletFinancialOverview(sales, inventoryEvents, rates, now = new
     ...financials,
     usd: convertCurrencyTotalsToUsd(financials.netTotals, rates),
     acquisitionUsd: convertCurrencyTotalsToUsd(financials.acquisitionTotals, rates),
+    expenseUsd: convertCurrencyTotalsToUsd(financials.expenseTotals, rates),
     profitUsd: convertCurrencyTotalsToUsd(financials.profitTotals, rates),
     feeUsd: convertCurrencyTotalsToUsd(financials.feeTotals, rates),
   })
@@ -289,10 +335,12 @@ export function walletFinancialOverview(sales, inventoryEvents, rates, now = new
     lifetime: {
       netTotals: lifetimeNetTotals,
       acquisitionTotals: lifetimeAcquisitionTotals,
+      expenseTotals: lifetimeExpenseTotals,
       profitTotals: lifetimeProfitTotals,
       feeTotals: lifetimeFeeTotals,
       usd: lifetimeUsd,
       acquisitionUsd: convertCurrencyTotalsToUsd(lifetimeAcquisitionTotals, rates),
+      expenseUsd: convertCurrencyTotalsToUsd(lifetimeExpenseTotals, rates),
       profitUsd: convertCurrencyTotalsToUsd(lifetimeProfitTotals, rates),
       feeUsd: convertCurrencyTotalsToUsd(lifetimeFeeTotals, rates),
     },

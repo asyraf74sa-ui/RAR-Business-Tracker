@@ -21,14 +21,16 @@ test('one USD sale reports its net wallet credit and platform tax exactly', () =
   assert.equal(report.salesCount, 1)
 })
 
-test('net profit subtracts purchases from wallet credit and never subtracts platform tax twice', () => {
+test('net profit subtracts purchases and operating expenses without subtracting platform tax twice', () => {
   const [report] = aggregateFinancialRecords({
     sales: [sale('2026-09-10T04:00:00Z', 'USD', '100', '15')],
     inventoryEvents: [purchase('2026-09-11T04:00:00Z', 'USD', '30', 'purchase-1')],
+    businessExpenses: [expense('2026-09-12T04:00:00Z', 'USD', '10')],
   }, { selectedMonth: '2026-09' })
 
-  assert.equal(report.currencies.USD.netProfit, '70')
-  assert.notEqual(report.currencies.USD.netProfit, '55')
+  assert.equal(report.currencies.USD.operatingExpenses, '10')
+  assert.equal(report.currencies.USD.netProfit, '60')
+  assert.notEqual(report.currencies.USD.netProfit, '45')
 })
 
 test('PayPal and TNG are retained in platform financial grouping with fees kept separate', () => {
@@ -87,6 +89,19 @@ test('history includes purchase-only, sale-only, and combined months and sorts n
   assert.equal(reports[0].currencies.USD.netProfit, '60')
   assert.equal(reports[1].currencies.USD.netProfit, '25')
   assert.equal(reports[2].currencies.USD.netProfit, '-30')
+})
+
+test('expense-only months are retained and voided expenses do not affect reports', () => {
+  const reports = aggregateFinancialRecords({
+    businessExpenses: [
+      expense('2026-05-10T04:00:00Z', 'MYR', 40),
+      { ...expense('2026-06-10T04:00:00Z', 'MYR', 999), voided_at: '2026-06-11T04:00:00Z' },
+    ],
+  })
+  assert.deepEqual(reports.map(({ month }) => month), ['2026-05'])
+  assert.equal(reports[0].currencies.MYR.operatingExpenses, '40')
+  assert.equal(reports[0].currencies.MYR.netProfit, '-40')
+  assert.equal(reports[0].expenseCount, 1)
 })
 
 test('Malaysia timezone assigns UTC boundary transactions to the correct local month', () => {
@@ -154,14 +169,16 @@ test('monthly overview shows all currencies, counts, and the correct accounting 
   const [report] = aggregateFinancialRecords({
     sales: [sale('2026-09-10T04:00:00Z', 'USD', 100, 15)],
     inventoryEvents: [purchase('2026-09-11T04:00:00Z', 'USD', 30, 'purchase-1')],
+    businessExpenses: [expense('2026-09-12T04:00:00Z', 'USD', 10)],
   }, { selectedMonth: '2026-09' })
   const page = buildMonthlyOverviewPage(report)
 
   for (const currency of ['USD', 'MYR', 'PHP', 'IDR']) assert.match(page.description, new RegExp(`\\*\\*${currency}\\*\\*`))
-  assert.match(page.description, /Net Profit: \$70\.00/)
+  assert.match(page.description, /Operating Expenses: \$10\.00/)
+  assert.match(page.description, /Net Profit: \$60\.00/)
   assert.match(page.description, /Sales recorded: 1/)
   assert.match(page.description, /Purchase transactions: 1/)
-  assert.match(page.footer.text, /Actual Wallet Credit − Item Purchase Spending/)
+  assert.match(page.footer.text, /Actual Wallet Credit − Item Purchase Spending − Operating Expenses/)
 })
 
 test('long history splits into complete Discord-safe pages without dropping old months', () => {
@@ -211,4 +228,8 @@ function purchase(eventAt, currency, cashAmount, requestId, id = `event-${reques
     cash_currency: cashAmount === null ? null : currency,
     request_id: requestId,
   }
+}
+
+function expense(incurredAt, currency, amount) {
+  return { id: `expense-${incurredAt}-${currency}`, incurred_at: incurredAt, workspace: 'RAR', currency, amount, voided_at: null }
 }

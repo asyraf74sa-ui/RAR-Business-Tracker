@@ -5,6 +5,7 @@ import { buildHelpPages, buildItemHelpPages, HELP_TOPICS } from '../src/help.js'
 test('/help exposes add, read-only stock overview, and stock reconciliation topic choices', () => {
   const values = HELP_TOPICS.map(({ value }) => value)
   assert.ok(values.includes('add'))
+  assert.ok(values.includes('expense'))
   assert.ok(values.includes('stockoverview'))
   assert.ok(values.includes('monthly'))
   assert.ok(values.includes('stock'))
@@ -21,6 +22,16 @@ test('plain help explains shared sales, isolated operations, platforms, and game
   assert.match(page.description, /\/monthly game:MR/)
   assert.match(page.description, /`\/stock` \*\*reads\*\* inventory only/i)
   assert.match(page.description, /MR STOCK - \.\.\.` \*\*set\/reconcile\*\*/i)
+  assert.match(page.description, /EXPENSE.*overhead/i)
+})
+
+test('/help expense documents all three scopes, optional categories, and no inventory lookup', () => {
+  const [page] = buildHelpPages('expense')
+  assert.match(page.description, /RAR EXPENSE - CLOUD ANDROID PLAN/)
+  assert.match(page.description, /MR EXPENSE - SOFTWARE/)
+  assert.match(page.description, /BUSINESS EXPENSE - DOMAIN/)
+  assert.match(page.description, /optional third line/i)
+  assert.match(page.description, /never resolved against the item catalog/i)
 })
 
 test('/help monthly explains the formula without deducting platform tax twice', () => {
@@ -28,9 +39,9 @@ test('/help monthly explains the formula without deducting platform tax twice', 
   assert.equal(page.title, 'RAR + MR Bot Help — monthly')
   assert.match(page.description, /\/monthly game:MR month:2026-09/)
   assert.match(page.description, /`\/months game:RAR`/)
-  assert.match(page.description, /Net Profit = Actual Wallet Credit − Item Purchase Spending/)
+  assert.match(page.description, /Net Profit = Actual Wallet Credit − Item Purchase Spending − Operating Expenses/)
   assert.match(page.description, /not subtracted again/i)
-  assert.match(page.description, /Net Profit: \$70\.00 — not \$55\.00/)
+  assert.match(page.description, /Net Profit: \$60\.00 — not \$45\.00/)
   assert.match(page.description, /never converted or combined/i)
 })
 

@@ -12,13 +12,14 @@ import {
   Menu,
   PackagePlus,
   ReceiptText,
+  BadgeDollarSign,
   Settings2,
   X,
 } from 'lucide-react'
 import { IconButton } from './ui.jsx'
 import { WORKSPACES, WORKSPACE_NAVIGATION } from '../lib/business-workspaces.js'
 
-const icons = { dashboard: Home, inventory: Boxes, sale: ReceiptText, gems: Gem, purchases: PackagePlus, farming: Leaf, operations: ArrowRightLeft, history: History, settings: Settings2 }
+const icons = { dashboard: Home, inventory: Boxes, sale: ReceiptText, gems: Gem, purchases: PackagePlus, farming: Leaf, operations: ArrowRightLeft, expenses: BadgeDollarSign, history: History, settings: Settings2 }
 
 export default function Shell({ workspace, onWorkspaceChange, activePage, onNavigate, user, onSignOut, children }) {
   const [moreOpen, setMoreOpen] = useState(false)

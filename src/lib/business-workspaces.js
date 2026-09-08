@@ -11,6 +11,7 @@ export const WORKSPACES = [
 export const WORKSPACE_NAVIGATION = {
   all: [
     { id: 'dashboard', label: 'Overview', mobileLabel: 'Overview' },
+    { id: 'expenses', label: 'Expenses', mobileLabel: 'Expenses' },
     { id: 'history', label: 'Financial history', mobileLabel: 'History' },
   ],
   rar: [
@@ -20,6 +21,7 @@ export const WORKSPACE_NAVIGATION = {
     { id: 'gems', label: 'Gems' },
     { id: 'purchases', label: 'Purchases' },
     { id: 'farming', label: 'Farm' },
+    { id: 'expenses', label: 'Expenses', mobileLabel: 'Expenses' },
     { id: 'history', label: 'History', mobileLabel: 'History' },
     { id: 'settings', label: 'Prices / Setup' },
   ],
@@ -28,6 +30,7 @@ export const WORKSPACE_NAVIGATION = {
     { id: 'inventory', label: 'Stock', mobileLabel: 'Stock' },
     { id: 'sale', label: 'Sale', mobileLabel: 'Sale' },
     { id: 'operations', label: 'Purchases / Trades', mobileLabel: 'Operations' },
+    { id: 'expenses', label: 'Expenses', mobileLabel: 'Expenses' },
     { id: 'history', label: 'History', mobileLabel: 'History' },
     { id: 'settings', label: 'Prices / Setup' },
   ],
@@ -40,6 +43,13 @@ function tagEvents(events, game) {
   return (events || []).map((event) => ({ ...event, game }))
 }
 
+export function expensesForWorkspace(data, workspace) {
+  const expenses = data.businessExpenses || []
+  if (workspace === 'rar') return expenses.filter((expense) => expense.workspace === 'RAR')
+  if (workspace === 'mr') return expenses.filter((expense) => expense.workspace === 'MR')
+  return expenses.filter((expense) => ['RAR', 'MR', 'SHARED'].includes(expense.workspace))
+}
+
 function monthByKey(overview, key) {
   return overview.months.find((month) => month.period.key === key)
 }
@@ -49,6 +59,7 @@ function financialContribution(month, rates) {
   return {
     net: month?.usd || empty,
     acquisition: month?.acquisitionUsd || empty,
+    expenses: month?.expenseUsd || empty,
     profit: month?.profitUsd || empty,
     fees: month?.feeUsd || empty,
   }
@@ -61,31 +72,39 @@ export function buildUnifiedFinancialOverview(
   mrInventoryEvents,
   rates,
   now = new Date(),
+  businessExpenses = [],
 ) {
   const taggedRar = tagSales(rarSales, 'RAR')
   const taggedMr = tagSales(mrSales, 'MR')
   const taggedRarEvents = tagEvents(rarInventoryEvents, 'RAR')
   const taggedMrEvents = tagEvents(mrInventoryEvents, 'MR')
+  const rarExpenses = businessExpenses.filter((expense) => expense.workspace === 'RAR')
+  const mrExpenses = businessExpenses.filter((expense) => expense.workspace === 'MR')
+  const sharedExpenses = businessExpenses.filter((expense) => expense.workspace === 'SHARED')
   const combined = walletFinancialOverview(
     [...taggedRar, ...taggedMr],
     [...taggedRarEvents, ...taggedMrEvents],
     rates,
     now,
+    businessExpenses,
   )
-  const rar = walletFinancialOverview(taggedRar, taggedRarEvents, rates, now)
-  const mr = walletFinancialOverview(taggedMr, taggedMrEvents, rates, now)
+  const rar = walletFinancialOverview(taggedRar, taggedRarEvents, rates, now, rarExpenses)
+  const mr = walletFinancialOverview(taggedMr, taggedMrEvents, rates, now, mrExpenses)
+  const shared = walletFinancialOverview([], [], rates, now, sharedExpenses)
 
   return {
     ...combined,
-    games: { RAR: rar, MR: mr },
+    games: { RAR: rar, MR: mr, SHARED: shared },
     months: combined.months.map((month) => {
       const rarMonth = monthByKey(rar, month.period.key)
       const mrMonth = monthByKey(mr, month.period.key)
+      const sharedMonth = monthByKey(shared, month.period.key)
       return {
         ...month,
         contributions: {
           RAR: financialContribution(rarMonth, rates),
           MR: financialContribution(mrMonth, rates),
+          SHARED: financialContribution(sharedMonth, rates),
         },
       }
     }),

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildUnifiedFinancialOverview, platformPerformance, WORKSPACE_NAVIGATION } from '../src/lib/business-workspaces.js'
+import { buildUnifiedFinancialOverview, expensesForWorkspace, platformPerformance, WORKSPACE_NAVIGATION } from '../src/lib/business-workspaces.js'
 
 const now = new Date('2026-09-04T04:00:00.000Z')
 const rates = { MYR: 4.7, PHP: 58, IDR: 16000 }
@@ -46,6 +46,25 @@ test('All Business preserves FX unavailability without inventing conversions', (
   assert.equal(overview.current.netTotals.MYR, 47)
 })
 
+test('RAR, MR, and All Business expense scopes stay isolated and shared is counted once', () => {
+  const expenses = [
+    { id: 'r', workspace: 'RAR', incurred_at: '2026-09-02T02:00:00Z', currency: 'USD', amount: 10, voided_at: null },
+    { id: 'm', workspace: 'MR', incurred_at: '2026-09-02T02:00:00Z', currency: 'USD', amount: 20, voided_at: null },
+    { id: 's', workspace: 'SHARED', incurred_at: '2026-09-02T02:00:00Z', currency: 'USD', amount: 30, voided_at: null },
+  ]
+  const data = { businessExpenses: expenses }
+  assert.deepEqual(expensesForWorkspace(data, 'rar').map(({ id }) => id), ['r'])
+  assert.deepEqual(expensesForWorkspace(data, 'mr').map(({ id }) => id), ['m'])
+  assert.deepEqual(expensesForWorkspace(data, 'all').map(({ id }) => id), ['r', 'm', 's'])
+
+  const overview = buildUnifiedFinancialOverview([], [], [], [], { USD: 1 }, now, expenses)
+  assert.equal(overview.games.RAR.current.expenseTotals.USD, 10)
+  assert.equal(overview.games.MR.current.expenseTotals.USD, 20)
+  assert.equal(overview.games.SHARED.current.expenseTotals.USD, 30)
+  assert.equal(overview.current.expenseTotals.USD, 60)
+  assert.equal(overview.current.profitTotals.USD, -60)
+})
+
 test('PayPal and TNG participate naturally in cross-game platform performance', () => {
   const rows = platformPerformance([
     { game: 'RAR', platform: 'PayPal', currency: 'USD', net_credit: 30, platform_fee: 2 },
@@ -62,5 +81,7 @@ test('workspace navigation keeps RAR-only concepts out of MR and All Business', 
   assert.ok(WORKSPACE_NAVIGATION.rar.some((entry) => entry.id === 'gems'))
   assert.ok(WORKSPACE_NAVIGATION.rar.some((entry) => entry.id === 'farming'))
   assert.ok(!WORKSPACE_NAVIGATION.mr.some((entry) => ['gems', 'farming'].includes(entry.id)))
-  assert.deepEqual(WORKSPACE_NAVIGATION.all.map((entry) => entry.id), ['dashboard', 'history'])
+  assert.deepEqual(WORKSPACE_NAVIGATION.all.map((entry) => entry.id), ['dashboard', 'expenses', 'history'])
+  assert.ok(WORKSPACE_NAVIGATION.rar.some((entry) => entry.id === 'expenses'))
+  assert.ok(WORKSPACE_NAVIGATION.mr.some((entry) => entry.id === 'expenses'))
 })

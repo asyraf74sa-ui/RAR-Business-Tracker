@@ -9,7 +9,7 @@ import {
 test('monthly financial loading uses paginated SELECT filters only and never calls a mutation RPC', async () => {
   const sales = Array.from({ length: 1001 }, (_, index) => ({ id: `sale-${index}` }))
   const events = [{ id: 'purchase-1' }]
-  const { supabase, calls } = fakeSupabase({ rar_sales: sales, rar_inventory_events: events })
+  const { supabase, calls } = fakeSupabase({ rar_sales: sales, rar_inventory_events: events, business_expenses: [] })
   const range = {
     startInclusive: '2026-08-31T16:00:00.000Z',
     endExclusive: '2026-09-30T16:00:00.000Z',
@@ -18,15 +18,18 @@ test('monthly financial loading uses paginated SELECT filters only and never cal
   const result = await loadMonthlyFinancialRecords(supabase, range)
   assert.equal(result.sales.length, 1001)
   assert.equal(result.inventoryEvents.length, 1)
+  assert.equal(result.businessExpenses.length, 0)
   assert.equal(calls.filter(([method]) => method === 'rpc').length, 0)
   assert.deepEqual(calls.filter(([method, table]) => method === 'range' && table === 'rar_sales').map((call) => call.slice(2)), [
     [0, 999],
     [1000, 1999],
   ])
 
-  for (const table of ['rar_sales', 'rar_inventory_events']) {
+  for (const table of ['rar_sales', 'rar_inventory_events', 'business_expenses']) {
+    const dateField = table === 'business_expenses' ? 'incurred_at' : table === 'rar_sales' ? 'sold_at' : 'event_at'
     assert.ok(calls.some((call) => call[0] === 'gte' && call[1] === table && call[3] === range.startInclusive))
     assert.ok(calls.some((call) => call[0] === 'lt' && call[1] === table && call[3] === range.endExclusive))
+    assert.ok(calls.some((call) => call[0] === 'gte' && call[1] === table && call[2] === dateField))
   }
   assert.ok(calls.some((call) => call[0] === 'eq'
     && call[1] === 'rar_inventory_events'
@@ -40,22 +43,23 @@ test('monthly financial loading uses paginated SELECT filters only and never cal
 })
 
 test('financial history loading remains paginated and does not leak selected-month filters', async () => {
-  const { supabase, calls } = fakeSupabase({ rar_sales: [], rar_inventory_events: [] })
+  const { supabase, calls } = fakeSupabase({ rar_sales: [], rar_inventory_events: [], business_expenses: [] })
   await loadFinancialHistoryRecords(supabase)
   assert.equal(calls.filter(([method]) => method === 'rpc').length, 0)
   assert.equal(calls.filter(([method]) => method === 'gte' || method === 'lt').length, 0)
-  assert.equal(calls.filter(([method]) => method === 'range').length, 2)
+  assert.equal(calls.filter(([method]) => method === 'range').length, 3)
 })
 
 test('MR monthly loading selects only MR sales and inventory events', async () => {
-  const { supabase, calls } = fakeSupabase({ mr_sales: [], mr_inventory_events: [] })
+  const { supabase, calls } = fakeSupabase({ mr_sales: [], mr_inventory_events: [], business_expenses: [] })
   await loadMonthlyFinancialRecords(supabase, {
     startInclusive: '2026-08-31T16:00:00.000Z',
     endExclusive: '2026-09-30T16:00:00.000Z',
   }, 'MR')
   const tables = calls.filter(([method]) => method === 'from').map((call) => call[1])
-  assert.deepEqual(tables.sort(), ['mr_inventory_events', 'mr_sales'])
+  assert.deepEqual(tables.sort(), ['business_expenses', 'mr_inventory_events', 'mr_sales'])
   assert.ok(tables.every((table) => !table.startsWith('rar_')))
+  assert.ok(calls.some((call) => call[0] === 'eq' && call[1] === 'business_expenses' && call[2] === 'workspace' && call[3] === 'MR'))
 })
 
 test('weekly loading uses [start, end), authoritative sales, and only their sale-item rows', async () => {
@@ -113,7 +117,7 @@ function fakeSupabase(rowsByTable) {
 
 function queryBuilder(table, rows, calls) {
   const builder = {}
-  for (const method of ['select', 'in', 'gte', 'lt', 'eq', 'not', 'order']) {
+  for (const method of ['select', 'in', 'gte', 'lt', 'eq', 'not', 'is', 'order']) {
     builder[method] = (...args) => {
       calls.push([method, table, ...args])
       return builder

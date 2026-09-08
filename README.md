@@ -15,6 +15,7 @@ A private, mobile-first business tracker for **Run A Restaurant (RAR)** and **My
 - MR item/set sales, purchases, and two-sided trades through atomic production RPCs
 - Derived MR furniture set availability using one table plus four chairs; no fake set stock is stored
 - Game-scoped operational history and combined financial-only history
+- One authoritative RAR / MR / Shared operating-expense ledger with free-text descriptions, original currencies, filtering, audited edits, and soft voids
 - Safe RAR and MR catalog managers that preserve item IDs, stock, and historical references
 - Item catalog, aliases, categories, Gem value, farm-item, availability, and platform-fee settings
 - First-account defaults seeded only when the authenticated user has no items
@@ -62,13 +63,37 @@ Key MR RPC functions:
 - `mr_save_catalog_item`
 - `mr_upsert_set_family`
 
+Key expense RPC functions:
+
+- `record_business_expense`
+- `update_business_expense`
+- `void_business_expense`
+
+Website, Discord, and authenticated manual/ChatGPT-assisted recording all use `record_business_expense`. The public wrapper runs with invoker security and delegates to a validated helper in the non-exposed `private` schema. Direct table writes are not granted to authenticated clients.
+
+An authenticated manual call uses the same inputs and rules:
+
+```sql
+select * from public.record_business_expense(
+  now(),
+  'SHARED',
+  60,
+  'MYR',
+  'DOMAIN RENEWAL',
+  gen_random_uuid(),
+  'Infrastructure',
+  null,
+  'manual'
+);
+```
+
 The Phase 2 migration is additive. It adds safe RAR catalog metadata and authenticated catalog/set-family RPCs without changing existing stock, item IDs, or historical transaction rows.
 
 ## Dashboard FX
 
 The wallet views request numeric USD-base MYR, PHP, and IDR rates from the keyless [Frankfurter](https://frankfurter.dev/) API through `GET /api/fx`. Vercel caches successful provider responses for one hour, while the browser keeps its last successful response and labels fallback data if a later refresh fails. Original-currency totals remain available when conversion is unavailable. Monthly history is explicitly labeled as a current-rate USD equivalent because historical exchange rates are not stored.
 
-Cash-basis profit reporting derives acquisition cost from the one non-null cash amount on each `supplier_purchase` bundle. It calculates `True Net Profit = Net Wallet Credit - Acquisition Cost`; platform fees remain informational because Net Wallet Credit already reflects them.
+Cash-basis profit reporting derives acquisition cost from the one non-null cash amount on each `supplier_purchase` bundle. It calculates `True Net Profit = Net Wallet Credit - Stock Acquisition Cost - Operating Expenses`; platform fees remain informational because Net Wallet Credit already reflects them. RAR includes RAR expenses, MR includes MR expenses, and All Business includes RAR + MR + Shared exactly once.
 
 ## Verification
 

@@ -44,7 +44,7 @@ export function malaysiaMonthRange(month) {
 }
 
 export function aggregateFinancialRecords(
-  { sales = [], inventoryEvents = [] },
+  { sales = [], inventoryEvents = [], businessExpenses = [] },
   { selectedMonth = null } = {},
 ) {
   const wantedMonth = selectedMonth ? parseMonthOption(selectedMonth) : null
@@ -94,6 +94,21 @@ export function aggregateFinancialRecords(
     report.purchaseTransactionKeys.add(transactionKey)
   })
 
+  businessExpenses.forEach((expense) => {
+    if (expense.voided_at) return
+    const currency = normalizeCurrency(expense.currency)
+    if (!currency) return
+    const month = monthKeyInMalaysia(expense.incurred_at)
+    if (wantedMonth && month !== wantedMonth) return
+
+    const report = getMonthReport(months, month)
+    report.currencies[currency].operatingExpenses = addDecimalAmounts(
+      report.currencies[currency].operatingExpenses,
+      expense.amount,
+    )
+    report.expenseCount += 1
+  })
+
   return [...months.values()]
     .sort((left, right) => right.month.localeCompare(left.month))
     .map(finalizeMonthReport)
@@ -132,6 +147,7 @@ export function buildMonthlyOverviewPage(report, { game = 'RAR' } = {}) {
       `Actual Wallet Credit: ${formatCurrencyAmount(totals.actualWalletCredit, currency)}`,
       `Platform Tax: ${formatCurrencyAmount(totals.platformTax, currency)}`,
       `Item Purchase Spending: ${formatCurrencyAmount(totals.itemPurchaseSpending, currency)}`,
+      `Operating Expenses: ${formatCurrencyAmount(totals.operatingExpenses, currency)}`,
       `Net Profit: ${formatCurrencyAmount(totals.netProfit, currency)}`,
     ].join('\n')
   })
@@ -143,9 +159,10 @@ export function buildMonthlyOverviewPage(report, { game = 'RAR' } = {}) {
       ...sections,
       `Sales recorded: ${report.salesCount}`,
       `Purchase transactions: ${report.purchaseTransactions}`,
+      `Operating expenses: ${report.expenseCount}`,
     ].join('\n\n'),
     color: EMBED_COLOR,
-    footer: { text: 'Net Profit = Actual Wallet Credit − Item Purchase Spending' },
+    footer: { text: 'Net Profit = Actual Wallet Credit − Item Purchase Spending − Operating Expenses' },
   }
 }
 
@@ -241,9 +258,11 @@ function createMonthReport(month) {
       actualWalletCredit: '0',
       platformTax: '0',
       itemPurchaseSpending: '0',
+      operatingExpenses: '0',
     }])),
     salesCount: 0,
     purchaseTransactionKeys: new Set(),
+    expenseCount: 0,
     platforms: {},
   }
 }
@@ -260,11 +279,15 @@ function finalizeMonthReport(report) {
       const totals = report.currencies[currency]
       return [currency, {
         ...totals,
-        netProfit: subtractDecimalAmounts(totals.actualWalletCredit, totals.itemPurchaseSpending),
+        netProfit: subtractDecimalAmounts(
+          subtractDecimalAmounts(totals.actualWalletCredit, totals.itemPurchaseSpending),
+          totals.operatingExpenses,
+        ),
       }]
     })),
     salesCount: report.salesCount,
     purchaseTransactions: report.purchaseTransactionKeys.size,
+    expenseCount: report.expenseCount,
     platforms: report.platforms,
   }
 }

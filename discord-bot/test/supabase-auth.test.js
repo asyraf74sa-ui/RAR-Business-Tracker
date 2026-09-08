@@ -21,6 +21,7 @@ import {
   recordMRPurchaseBundle,
   recordMRSale,
   recordMRTrade,
+  recordBusinessExpense,
   recordPurchaseBundle,
   recordSale,
   recordTrade,
@@ -191,6 +192,7 @@ test('all mutation helpers reuse the same deterministic request ID across one au
     ['MR trade', recordMRTrade, 'mr_record_trade'],
     ['MR add', addMRStockBundle, 'mr_add_stock_bundle'],
     ['MR stock', reconcileMRStockBundle, 'mr_reconcile_stock_batch'],
+    ['expense', recordBusinessExpense, 'record_business_expense'],
   ]
 
   for (const [name, mutate, functionName] of mutations) {
@@ -329,7 +331,7 @@ function fakeSupabase({
     from(table) {
       const chain = []
       const builder = {}
-      for (const method of ['eq', 'gte', 'in', 'limit', 'lt', 'maybeSingle', 'not', 'order', 'range', 'select']) {
+      for (const method of ['eq', 'gte', 'in', 'is', 'limit', 'lt', 'maybeSingle', 'not', 'order', 'range', 'select']) {
         builder[method] = (...args) => {
           chain.push([method, ...args])
           return builder

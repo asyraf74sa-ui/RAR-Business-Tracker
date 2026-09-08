@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Landmark, PackagePlus, Percent, WalletCards } from 'lucide-react'
+import { BadgeDollarSign, Landmark, PackagePlus, Percent, WalletCards } from 'lucide-react'
 import { CURRENCIES } from '../lib/constants.js'
 import { formatMoney, toNumber } from '../lib/format.js'
 
@@ -12,6 +12,7 @@ const PERIODS = [
 const METRICS = [
   { key: 'net', label: 'Net Wallet Credit', totals: 'netTotals', conversion: 'usd', icon: WalletCards },
   { key: 'acquisition', label: 'Acquisition Cost', totals: 'acquisitionTotals', conversion: 'acquisitionUsd', icon: PackagePlus },
+  { key: 'expenses', label: 'Operating Expenses', totals: 'expenseTotals', conversion: 'expenseUsd', icon: BadgeDollarSign },
   { key: 'fees', label: 'Platform Fees', totals: 'feeTotals', conversion: 'feeUsd', icon: Percent },
 ]
 
@@ -46,7 +47,7 @@ export default function FinancialProfitSection({ overview, gameOverviews = null 
         <div>
           <p className="eyebrow">Cash performance</p>
           <h2 id="true-net-profit-title">True Net Profit <small>Cash basis</small></h2>
-          <p>Net Wallet Credit minus recorded stock acquisition costs. Platform fees are already reflected in wallet credit and are not deducted again.</p>
+          <p>Net Wallet Credit minus recorded stock acquisition costs and operating expenses. Platform fees are already reflected in wallet credit and are not deducted again.</p>
         </div>
         <div className="profit-ledger__periods" role="tablist" aria-label="Financial reporting period">
           {PERIODS.map((entry) => (
@@ -84,13 +85,14 @@ export default function FinancialProfitSection({ overview, gameOverviews = null 
 
       {gameOverviews && (
         <div className="profit-ledger__contributions" aria-label="RAR and MR financial contribution">
-          {['RAR', 'MR'].map((game) => {
+          {['RAR', 'MR', ...(gameOverviews.SHARED ? ['SHARED'] : [])].map((game) => {
             const gamePeriod = gameOverviews[game][periodId]
+            const shared = game === 'SHARED'
             return (
               <article key={game}>
                 <span className={`game-orb game-orb--${game.toLowerCase()}`}>{game.slice(0, 1)}</span>
-                <div><strong>{game}</strong><small>Net <Equivalent conversion={gamePeriod.usd} /> · Cost <Equivalent conversion={gamePeriod.acquisitionUsd} /></small></div>
-                <div><span>True Net Profit</span><Equivalent conversion={gamePeriod.profitUsd} /></div>
+                <div><strong>{shared ? 'Shared business' : game}</strong><small>{shared ? 'Operating ' : 'Net '}<Equivalent conversion={shared ? gamePeriod.expenseUsd : gamePeriod.usd} />{!shared && <> · Stock <Equivalent conversion={gamePeriod.acquisitionUsd} /> · Operating <Equivalent conversion={gamePeriod.expenseUsd} /></>}</small></div>
+                <div><span>{shared ? 'Profit impact' : 'True Net Profit'}</span><Equivalent conversion={gamePeriod.profitUsd} /></div>
               </article>
             )
           })}

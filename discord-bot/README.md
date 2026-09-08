@@ -77,6 +77,24 @@ You can also double-click `start-bot.bat`. On startup, the bot idempotently regi
 
 ## Message formats
 
+### Operating expenses
+
+Post game-specific expenses in that game's operations channel. Post shared `BUSINESS EXPENSE` in either operations channel.
+
+```text
+RAR EXPENSE - CLOUD ANDROID PLAN
+45 MYR
+Cloud / VPS
+
+MR EXPENSE - SOFTWARE SUBSCRIPTION
+20 USD
+
+BUSINESS EXPENSE - DOMAIN RENEWAL
+60 MYR
+```
+
+The third category line is optional and defaults to `Other`. Descriptions and categories are free text. Expenses use the authoritative `record_business_expense` RPC and never resolve inventory items or change stock.
+
 ### Read-only monthly financial reports
 
 Run `/monthly` for the current Malaysia-calendar month, or select a strict `YYYY-MM` month:
