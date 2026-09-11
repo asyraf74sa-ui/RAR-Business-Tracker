@@ -111,18 +111,50 @@ test('pagination supports legacy/v2 shapes, preserves owner/status, and deduplic
   for (const request of mock.requests.slice(1)) {
     assert.equal(request.url.searchParams.get('owner'), owner)
     assert.equal(request.url.searchParams.get('status'), 'onsale')
-    assert.equal(request.url.searchParams.get('expiration'), 'now,')
+    assert.equal(request.url.searchParams.has('expiration'), false)
     assert.equal(request.url.searchParams.get('v2'), 'true')
   }
   assert.deepEqual(mock.sleeps, [250, 250, 250])
 })
 
-test('all-statuses explicitly broadens both status and expiration scopes', async () => {
-  const mock = mockClient([success({ owner }), success({ listings: [fixture('old', 'Piano', { status: 'sold', expiration: '2020-01-01T00:00:00.000Z' })] })])
+test('all-statuses broadens status without sending the rejected expiration range', async () => {
+  const mock = mockClient([success({ owner }), success({ listings: [fixture('sold', 'Piano', { status: 'sold' })] })])
   const result = await mock.client.listings({ allStatuses: true })
   assert.equal(result[0].status, 'sold')
   assert.equal(mock.requests[1].url.searchParams.get('status'), ALL_STATUSES)
-  assert.equal(mock.requests[1].url.searchParams.get('expiration'), '1970-01-01T00:00:00.000Z,')
+  assert.equal(mock.requests[1].url.searchParams.has('expiration'), false)
+})
+
+test('production expiration regression: every search page omits echoed legacy ranges', async () => {
+  for (const allStatuses of [false, true]) {
+    const mock = mockClient([
+      success({ owner }),
+      success([fixture()], '/api/v1/listing?after=one&expiration=now%2C'),
+      success([fixture('two', 'Host Station')], '?after=two&expiration=1970-01-01T00%3A00%3A00.000Z%2C'),
+      success([]),
+    ])
+    const rows = await mock.client.listings({ allStatuses })
+    assert.equal(rows.length, 2)
+    for (const request of mock.requests.slice(1)) {
+      assert.equal(request.url.searchParams.has('expiration'), false, 'Production rejects open-ended expiration ranges')
+      assert.equal(request.url.searchParams.get('owner'), owner)
+      assert.equal(request.url.searchParams.get('status'), allStatuses ? ALL_STATUSES : 'onsale')
+    }
+  }
+})
+
+test('pagination loop detection cannot be bypassed by changing the omitted expiration range', async () => {
+  const mock = mockClient([success({ owner }), success([], '/api/v1/listing?expiration=now%2C')])
+  await assert.rejects(mock.client.listings(), /pagination repeated/)
+  assert.equal(mock.requests.length, 2)
+})
+
+test('expired owned listing can still be read directly without any search request', async () => {
+  const expired = fixture('expired', 'Piano', { expiration: '2020-01-01T00:00:00.000Z' })
+  const mock = mockClient([success({ owner }), success(expired)])
+  assert.deepEqual(await mock.client.listing('expired'), expired)
+  assert.equal(mock.requests.length, 2)
+  assert.equal(mock.requests[1].url.search, '')
 })
 
 test('pagination rejects foreign origins, path changes, credentials, and changed scope', async () => {
@@ -264,6 +296,37 @@ test('report keeps item, template candidates, lifecycle and unknown API fields s
   for (const fragment of ['ITEM-SPECIFIC FIELDS', 'TEMPLATE / SHARED SETTING CANDIDATES', 'LIFECYCLE / IDENTITY', 'OTHER API FIELDS', 'COMMON SETTINGS', '$1.25', 'photo-1', 'not exposed', 'shipping_within_days', 'offline-game-sku', 'Offline test description', 'quantity']) assert.ok(text.includes(fragment), fragment)
   const fx = renderReport({ mode: 'id', listings: [fixture('b', 'Piano', { currency: 'FLP' })], comparison: { sample: [] } })
   assert.match(fx, /conversion not assumed/)
+})
+
+test('actual stock fields are item-specific; seller metrics and fees are not template settings', () => {
+  const metrics = { qty_sold: 2, is_in_stock: true, seller_ratings: 9, seller_id_verified: '2026-01-01', seller_score: 0.8, digital_fee: 20, partner_fee: 20, commission: 90, cognitoidp_client: 'marketplace' }
+  const a = fixture('a', 'Piano', { ...metrics, qty_avail: 12, qty_purchased_min: 1, expire_in_days: 30 })
+  delete a.quantity
+  const b = { ...a, id: 'b', name: 'Run A Restaurant - Host Station', qty_avail: 8 }
+  const groups = splitListing(a)
+  assert.equal(groups.item.qty_avail, 12)
+  assert.equal(groups.settings.qty_purchased_min, 1)
+  assert.equal(groups.settings.expire_in_days, 30)
+  for (const key of Object.keys(metrics)) {
+    assert.equal(groups.lifecycle[key], metrics[key])
+    assert.equal(groups.settings[key], undefined)
+  }
+  const comparison = compareListings([a, b])
+  assert.ok(comparison.item.differing.qty_avail)
+  assert.equal(comparison.settings.common.qty_purchased_min, 1)
+  assert.equal(comparison.settings.common.expire_in_days, 30)
+  assert.equal(comparison.settings.common.seller_ratings, undefined)
+  const rendered = renderReport({ mode: 'onsale', listings: [a], comparison })
+  assert.match(rendered, /qty_avail \| 12/)
+  assert.doesNotMatch(rendered, /\| quantity \| \(not exposed\)/)
+})
+
+test('help and README do not promise expired records from all-statuses search', async () => {
+  const help = await cli(['--help'])
+  assert.match(help.out, /API-default expiration/)
+  assert.doesNotMatch(help.out, /including expired listings|expiration >=/)
+  const readme = await readFile(new URL('README.md', import.meta.url), 'utf8')
+  assert.match(readme, /does not promise expired records/)
 })
 
 test('search reads all pages, hydrates matched listings and compares other RAR samples', async () => {

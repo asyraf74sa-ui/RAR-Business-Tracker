@@ -3,9 +3,10 @@ import { InspectorError, isSensitiveField } from './client.js'
 
 export const isRar = (listing) => /^Run A Restaurant\s*-\s*/i.test(listing.name || listing.title || '')
 const title = (listing) => listing.name || listing.title || '(name not exposed)'
-const itemFields = new Set(['name', 'title', 'description', 'price', 'currency', 'photo', 'photos', 'images', 'image', 'cover_photo', 'quantity', 'stock', 'stock_quantity', 'quantity_available', 'available_quantity', 'num_available'])
-const lifecycleFields = new Set(['id', 'owner', 'status', 'created', 'updated', 'expiration', 'onsale', 'version', 'views', 'likes', 'num_views', 'num_likes', 'statistics', 'exchange', 'exchange_id'])
-const settingFields = new Set(['category', 'subcategory', 'sub_category', 'platform', 'digital', 'digital_region', 'digital_deliverable', 'shipping_within_days', 'tags', 'upc', 'sku', 'product', 'product_id', 'game', 'game_id', 'game_name', 'roblox', 'metadata', 'attributes', 'genre', 'kind', 'visibility', 'condition', 'accept_currency', 'delivery_method', 'delivery_time', 'region', 'seller', 'seller_config'])
+const itemFields = new Set(['name', 'title', 'description', 'price', 'currency', 'photo', 'photos', 'images', 'image', 'cover_photo', 'quantity', 'stock', 'stock_quantity', 'quantity_available', 'available_quantity', 'num_available', 'qty_avail'])
+// Returned identity, metrics and fees are observations, not copy-ready inputs.
+const lifecycleFields = new Set(['id', 'owner', 'status', 'created', 'updated', 'expiration', 'onsale', 'version', 'views', 'likes', 'num_views', 'num_likes', 'statistics', 'exchange', 'exchange_id', 'qty_sold', 'is_in_stock', 'comment', 'commission', 'partner_fee', 'digital_fee', 'seller_id_verified', 'seller_rating_score', 'seller_completion_score', 'seller_score', 'seller_ratings', 'cognitoidp_client'])
+const settingFields = new Set(['category', 'subcategory', 'sub_category', 'platform', 'digital', 'digital_region', 'digital_deliverable', 'shipping_within_days', 'tags', 'upc', 'sku', 'product', 'product_id', 'game', 'game_id', 'game_name', 'roblox', 'metadata', 'attributes', 'genre', 'kind', 'visibility', 'condition', 'accept_currency', 'delivery_method', 'delivery_time', 'region', 'seller', 'seller_config', 'qty_purchased_min', 'expire_in_days'])
 
 export function splitListing(listing) {
   const groups = { item: {}, settings: {}, lifecycle: {}, other: {} }
@@ -80,7 +81,8 @@ export async function inspect(client, options, progress = () => {}) {
   const all = await client.listings({ allStatuses: options.allStatuses })
   const rar = all.filter(isRar)
   const selected = rar.filter((listing) => !options.search || title(listing).toLowerCase().includes(options.search.toLowerCase()))
-  if (!selected.length) return { mode: options.allStatuses ? 'all documented statuses' : 'onsale', listings: [], comparison: { sample: [] } }
+  const mode = `${options.allStatuses ? 'all documented statuses' : 'onsale'} (API-default expiration filtering)`
+  if (!selected.length) return { mode, listings: [], comparison: { sample: [] } }
   // Hydrate full details; search responses can contain only a subset of listing fields.
   const needed = new Map([...selected, ...selectSamples(rar)].map((listing) => [listing.id, listing]))
   const details = new Map()
@@ -92,7 +94,7 @@ export async function inspect(client, options, progress = () => {}) {
     if (details.size % 20 === 0) progress(`Read ${details.size} of ${needed.size} listing details...`)
   }
   return {
-    mode: options.allStatuses ? 'all documented statuses' : 'onsale',
+    mode,
     listings: selected.map((listing) => details.get(listing.id)),
     comparison: compareListings(selectSamples(rar).map((listing) => details.get(listing.id)), client.redact),
   }
@@ -140,9 +142,10 @@ export function renderReport(report) {
   for (const listing of report.listings) {
     const groups = splitListing(listing)
     output.push(`LISTING: ${display(title(listing))} [${display(listing.id)}]`)
-    output.push('ITEM-SPECIFIC FIELDS\n' + fieldTable(groups.item, ['description', 'price', 'currency', 'photo', 'quantity']))
+    const stockField = Object.hasOwn(groups.item, 'qty_avail') ? 'qty_avail' : 'quantity'
+    output.push('ITEM-SPECIFIC FIELDS\n' + fieldTable(groups.item, ['description', 'price', 'currency', 'photo', stockField]))
     output.push('TEMPLATE / SHARED SETTING CANDIDATES (not assumed shared)\n' + fieldTable(groups.settings, ['category', 'subcategory', 'platform', 'digital', 'digital_region', 'digital_deliverable', 'shipping_within_days', 'tags']))
-    output.push('LIFECYCLE / IDENTITY (not template inputs)\n' + fieldTable(groups.lifecycle))
+    output.push('LIFECYCLE / IDENTITY / METRICS / FEES (not template inputs)\n' + fieldTable(groups.lifecycle))
     if (Object.keys(groups.other).length) output.push('OTHER API FIELDS (unclassified; review before reuse)\n' + fieldTable(groups.other))
   }
   const comparison = report.comparison

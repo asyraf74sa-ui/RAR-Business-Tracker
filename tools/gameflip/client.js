@@ -164,13 +164,15 @@ export function createClient(credentials, { fetchImpl = globalThis.fetch, now = 
     const filters = {
       owner: account, v2: 'true', limit: '50',
       status: allStatuses ? ALL_STATUSES : 'onsale',
-      expiration: allStatuses ? '1970-01-01T00:00:00.000Z,' : 'now,',
     }
     let url = new URL(LISTINGS_PATH, ORIGIN)
     Object.entries(filters).forEach(([key, value]) => url.searchParams.set(key, value))
     const visited = new Set()
     const found = new Map()
     while (url) {
+      // Production v2 rejects the legacy open-ended expiration range. Keep the
+      // API's default expiration scope, including when next_page echoes a range.
+      url.searchParams.delete('expiration')
       // Canonical ordering detects equivalent pagination loops too.
       url.searchParams.sort()
       if (visited.has(url.href) || visited.size >= 1000) throw new InspectorError('Gameflip pagination repeated or exceeded the safety limit. Results are incomplete; no report was produced.')

@@ -18,8 +18,8 @@ distinct RAR products is compared, including during --search.
 
 --search TEXT    Case-insensitive title substring within RAR listings.
 --id ID          One owned listing, any accessible status/title; no shop scan.
---all-statuses   Search all documented statuses, including expired listings
-                 with expiration >= 1970-01-01. Not an account backup.
+--all-statuses   Search all documented statuses with API-default expiration
+                 filtering. Use --id for expired/unsearchable owned listings.
 --raw            Sanitized listing/comparison JSON, without profile or headers.
 --help, -h       Show this help without loading credentials or contacting APIs.
 

@@ -32,7 +32,7 @@ npm run gameflip:inspect -- --search "Dinosaur Fossil"
 # Exactly one owned listing, even if expired or not a RAR title
 npm run gameflip:inspect -- --id <listing-id>
 
-# Broader status/expiration search
+# Broader status search (API-default expiration filtering still applies)
 npm run gameflip:inspect -- --all-statuses
 
 # Sanitized raw JSON (can combine with --search, --id, or --all-statuses)
@@ -53,9 +53,9 @@ For JSON redirection without npm's script banner: `npm run --silent gameflip:ins
 
 - Gets the authenticated profile's owner ID, scopes every search to it, and verifies ownership of each detailed listing. It does not print the profile.
 - Follows every page, preserves filters, deduplicates IDs, and fails on pagination loops or the 1,000-page safety limit instead of claiming a complete result.
-- Defaults to unexpired `onsale` listings. `--all-statuses` requests the current SDK and legacy documented statuses (`draft`, `prepare`, `ready`, `onsale`, `sale_pending`, `sold`, `cancelled`) with an expiration lower bound of 1970-01-01. It is **not an exhaustive backup**: unsearchable/deleted records, undocumented statuses, or records without an indexed expiration may be absent. Use `--id` for a known owned listing omitted by search.
+- Defaults to `onsale` listings with Gameflip's default expiration filtering. `--all-statuses` requests the current SDK and legacy documented statuses (`draft`, `prepare`, `ready`, `onsale`, `sale_pending`, `sold`, `cancelled`) but keeps that same expiration scope. Neither mode sends an explicit `expiration` query parameter: production v2 returned HTTP 400 for the legacy open-ended ranges, despite their appearance in the older documentation. Pagination also removes an echoed expiration parameter. This is **not an exhaustive backup** and does not promise expired records: unsearchable/deleted records, undocumented statuses, and records without an indexed expiration may be absent. Use `--id` to read a known owned listing directly, including expired listings, without search filters.
 - Reads full details, not only search summaries. Large shops may take time: requests are sequential with a short delay. Rate limits stop the run cleanly; wait before retrying. No automatic repeated authentication attempts occur.
-- Shows item fields, candidate settings, lifecycle fields, and unclassified API fields separately. Missing fields stay “not exposed”; no quantity, region, platform, or game is invented. `accept_currency` is not the price currency. Non-USD explicit currencies retain API units without an assumed conversion.
+- Shows item fields, candidate settings, lifecycle/metrics/fees, and unclassified API fields separately. The observed stock field is `qty_avail`; `qty_purchased_min` and `expire_in_days` are comparison candidates, not proof of required creation inputs. Seller reputation, sold counts, fees, and identity fields are not template inputs. Missing fields stay “not exposed”; no quantity, region, platform, or game is invented. `accept_currency` is not the price currency. Non-USD explicit currencies retain API units without an assumed conversion.
 - Compares up to five distinct products, preferring Dinosaur Fossil, Host Station, Prep Kitchen, Piano, and High Tech Stove. Shared means exactly equal **in this sample**, not necessarily safe for future listings. Missing differs from null; array order matters. A single `--id` read cannot prove common settings. Data is read over time, not as an atomic snapshot.
 
 ## Safety boundary
