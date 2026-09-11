@@ -1,0 +1,16 @@
+[
+  {
+    "name": "Dinosaur Fossil",
+    "description": "Customers may admire it after their meal and pay double at the register.",
+    "price_usd": 10.00,
+    "qty_avail": 12,
+    "image": "./images/dinosaur-fossil.png"
+  },
+  {
+    "name": "Prep Kitchen",
+    "description": "Boosts the cook speed of nearby stoves.",
+    "price_usd": 1.80,
+    "qty_avail": 20,
+    "image": "./images/prep-kitchen.png"
+  }
+]

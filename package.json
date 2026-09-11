@@ -10,6 +10,7 @@
     "test": "node --test test/dashboard-finance.test.js test/acquisition-finance.test.js test/fx-client.test.js test/fx-endpoint.test.js test/supabase-pagination.test.js test/business-workspaces.test.js test/mr-workspace.test.js test/catalog-management.test.js test/security-hardening.test.js test/expense-ui.test.js",
     "check": "npm run test && npm run gameflip:test && npm run build",
     "gameflip:inspect": "node tools/gameflip/inspect-listings.js",
+    "gameflip:upload": "node tools/gameflip/upload-listings.js",
     "gameflip:test": "node --test tools/gameflip/*.test.js"
   },
   "dependencies": {
