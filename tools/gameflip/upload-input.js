@@ -77,8 +77,16 @@ export async function loadInput(file) {
     throw new UploadError('Input must be an array containing 1–200 entries.', { stop: true })
   }
   const result = entries.map((item, index) => {
-    try { return { index, ...validateEntry(item) } }
-    catch (error) { return { index, title: `Entry ${index + 1}`, error: error instanceof UploadError ? error.message : 'Invalid entry.' } }
+    try {
+      const title = titleFor(item)
+      try { return { index, ...validateEntry(item) } }
+      catch (error) {
+        // A known title will never be created. Defer creation-only fields until
+        // after the account duplicate check; missing images/descriptions/stock
+        // must not prevent a read-only duplicate test.
+        return { index, title, key: normalizeTitle(title), validationError: error instanceof UploadError ? error.message : 'Invalid entry.' }
+      }
+    } catch { return { index, title: `Entry ${index + 1}`, error: 'Invalid item name/title.' } }
   })
   const counts = new Map()
   // Even an otherwise invalid entry can collide with a valid title.

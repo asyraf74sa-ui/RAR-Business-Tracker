@@ -41,6 +41,7 @@ export async function planUpload(entries, { file, api, journal, allowDuplicate =
       continue
     }
     try {
+      if (entry.validationError) throw new UploadError(entry.validationError)
       // One image now; the pipeline operates on a collection so it can grow safely later.
       const images = [await readImage(file, entry.imagePath)]
       const digest = fingerprint(entry, images)

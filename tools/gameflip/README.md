@@ -97,7 +97,7 @@ To preview the supplied example against existing account titles without copying 
 npm run gameflip:upload -- --file tools/gameflip/listings.example.json
 ```
 
-Existing titles are reported as `SKIP` before image loading, so an already-listed sample item needs no local image for this preview. **SKIP does not validate its image for future creation.** New entries require a valid image and appear as `CREATE`; retained drafts appear as `RESUME`; invalid entries appear as `ERROR`. Dry-run makes only GET requests and does not write run state, allocate/upload photos, change stock, or publish anything.
+Existing titles are reported as `SKIP` before creation-field validation or image loading. A duplicate-only preview can therefore contain just `name` and `price_usd`, without description, quantity or image. **SKIP does not validate these fields for future creation.** New entries and draft resumptions still require all creation fields and a valid image; missing/invalid values appear as `ERROR`, never `CREATE`. `--allow-duplicate` does not bypass this validation. Dry-run makes only GET requests and does not write run state, allocate/upload photos, change stock, or publish anything.
 
 Only after reviewing the complete preview, this separate command enables live writes:
 

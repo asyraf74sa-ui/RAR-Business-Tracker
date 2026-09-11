@@ -540,3 +540,33 @@ test('expired S3 upload authorization is an item failure, not Gameflip account-a
   assert.match(report.results[0].reason, /Image storage/)
   assert.equal(mock.records.get('new-1').status, 'draft')
 })
+
+test('duplicate-only JSON needs no description, quantity or image', async (t) => {
+  const ctx = await fixture(t, [{ name: 'Golden Chair', price_usd: '1.00' }])
+  const mock = mockApi({ execute: false, confirmed: false, existing: [{ id: 'existing', name: ' Run A Restaurant - GOLDEN CHAIR ', owner }] })
+  const { report } = await runFixture(ctx, mock, { execute: false, confirmed: false, readImage: () => assert.fail('Duplicate must not validate an image') })
+  assert.equal(report.summary.skipped, 1)
+  assert.equal(report.summary.invalid, 0)
+  assert.equal(report.summary.wouldCreate, 0)
+  assert.equal(mock.mutations().length, 0)
+})
+
+test('missing creation fields still block unknown titles and allow-duplicate execution', async (t) => {
+  for (const existing of [[], [{ id: 'existing', name: titleFor(input()), owner }]]) {
+    const ctx = await fixture(t, [{ name: 'Golden Chair', price_usd: '1.00' }])
+    const mock = mockApi({ existing })
+    const { report } = await runFixture(ctx, mock, { allowDuplicate: true })
+    assert.equal(report.summary.invalid, 1)
+    assert.equal(report.summary.created, 0)
+    assert.equal(mock.mutations().length, 0)
+  }
+})
+
+test('duplicate input title guard remains active for incomplete duplicate-only entries', async (t) => {
+  const ctx = await fixture(t, [{ name: 'Golden Chair' }, { name: ' GOLDEN CHAIR ' }])
+  const mock = mockApi({ existing: [{ id: 'existing', name: titleFor(input()), owner }] })
+  const { report } = await runFixture(ctx, mock, { execute: false, confirmed: false })
+  assert.equal(report.summary.invalid, 2)
+  assert.equal(report.summary.skipped, 0)
+  assert.equal(mock.mutations().length, 0)
+})
