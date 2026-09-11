@@ -570,3 +570,62 @@ test('duplicate input title guard remains active for incomplete duplicate-only e
   assert.equal(report.summary.skipped, 0)
   assert.equal(mock.mutations().length, 0)
 })
+
+test('owner-scoped checker follows every page and skips 20 new onsale titles on later pages', async (t) => {
+  const names = ['High Tech Table', 'High Tech Chair', 'Golden Table', 'Golden Chair', 'Giant Cowbell',
+    'Tackle Box', 'Soccer Set', 'Clown Chair', 'Clown Table', 'Basketball Tip Jar', 'Taco Chair',
+    'Taco Table', 'Lifeguard Stand', 'Captain Table', 'Captain Chair', 'Ship in a Bottle Tip Jar',
+    'Pirate Fishing Rod', 'Sunken Table', 'Sunken Chair', 'Shipwreck']
+  const ctx = await fixture(t, names.map(name => ({ name })))
+  const older = Array.from({ length: 3 }, (_, index) => ({ id: `old-${index}`, owner, name: `Unrelated ${index}`, status: 'sold' }))
+  const newer = names.map((name, index) => ({ id: `new-title-${index}`, owner, name: `  RUN A RESTAURANT - ${name.toUpperCase()}  `, status: 'onsale' }))
+  let page = 0
+  const mock = mockApi({ execute: false, confirmed: false, hook: call => {
+    if (call.path !== '/api/v1/listing') return undefined
+    assert.equal(call.method, 'GET')
+    assert.equal(new URL(call.url).searchParams.get('owner'), owner)
+    page++
+    if (page === 1) return success(older, { next_page: '?start=3' })
+    if (page === 2) return success({ listings: newer.slice(0, 10), found: 23, next_page: '/api/v1/listing?start=13' })
+    if (page === 3) return success([...newer.slice(10), older[0]], { next_page: '?start=24' })
+    assert.equal(page, 4)
+    return success(null)
+  } })
+  const { plan, report } = await runFixture(ctx, mock, { execute: false, confirmed: false, readImage: () => assert.fail('Duplicates never need images') })
+  assert.equal(page, 4)
+  assert.equal(plan.scanned, 23, 'Repeated listing ID is counted only once')
+  assert.equal(report.summary.skipped, 20)
+  assert.equal(report.summary.wouldCreate, 0)
+  assert.equal(report.summary.invalid, 0)
+  assert.equal(mock.mutations().length, 0)
+})
+
+test('discovery retains returned draft, ready, unavailable and unrecognized status rows', async (t) => {
+  // This tests local handling of returned rows, not whether the server search
+  // filters expose every possible status. Those are separate API limitations.
+  const statuses = ['draft', 'ready', 'unavailable', 'future_status']
+  const ctx = await fixture(t, statuses.map(status => ({ name: `Item ${status}` })))
+  let page = 0
+  const mock = mockApi({ execute: false, confirmed: false, hook: call => {
+    if (call.path !== '/api/v1/listing') return undefined
+    page++
+    const rows = statuses.slice((page - 1) * 2, page * 2).map(status => ({ id: `id-${status}`, owner, name: `Run A Restaurant - Item ${status}`, status }))
+    return success({ listings: rows, found: 4 }, page < 2 ? { next_page: '?start=2' } : {})
+  } })
+  const { report } = await runFixture(ctx, mock, { execute: false, confirmed: false })
+  assert.equal(page, 2)
+  assert.equal(report.summary.skipped, 4)
+  assert.equal(mock.mutations().length, 0)
+})
+
+test('an empty page with a next_page cursor does not stop owner listing traversal', async () => {
+  let page = 0
+  const mock = mockApi({ execute: false, confirmed: false, hook: call => {
+    if (call.path !== '/api/v1/listing') return undefined
+    page++
+    return page === 1 ? success([], { next_page: '?start=50' }) : success([{ id: 'later', owner, name: 'Run A Restaurant - Golden Chair', status: 'onsale' }])
+  } })
+  assert.deepEqual((await mock.api.listings()).map(row => row.id), ['later'])
+  assert.equal(page, 2)
+  assert.equal(mock.mutations().length, 0)
+})
