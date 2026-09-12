@@ -19,6 +19,34 @@ const noImage = (name) => { const item = input(name); delete item.image; return 
 const success = (data, extra = {}) => new Response(JSON.stringify({ status: 'SUCCESS', data, ...extra }), { status: 200, headers: { 'Content-Type': 'application/json' } })
 const reject = (status, headers = {}) => new Response('Remote body deliberately withheld', { status, headers })
 
+test('draft offer update preserves description/photo and uses conditional version protection', async () => {
+  const record = { id: 'bundle-draft', owner, status: 'draft', version: '1', name: 'Run A Restaurant - Small Tip Jar', price: 50, qty_avail: 3, description: 'Approved', cover_photo: 'existing-photo' }
+  const mock = mockApi({ existing: [record] })
+  const offer = { name: 'Run A Restaurant - 2x Small Tip Jar', price: 100, qty_avail: Math.ceil(record.qty_avail / 2) }
+  await mock.api.updateDraftOffer(record.id, await mock.api.listing(record.id), offer)
+  const updated = mock.records.get(record.id)
+  assert.equal(updated.qty_avail, 2)
+  assert.equal(updated.price, 100)
+  assert.equal(updated.name, offer.name)
+  assert.equal(updated.description, record.description)
+  assert.equal(updated.cover_photo, record.cover_photo)
+  assert.equal(updated.status, 'draft')
+  const patch = mock.calls.find(c => c.method === 'PATCH')
+  assert.deepEqual(JSON.parse(patch.options.body).slice(0, 2), [{ op: 'test', path: '/status', value: 'draft' }, { op: 'test', path: '/version', value: '1' }])
+})
+
+test('draft offer update rejects extra fields, invalid quantities and published listings', async () => {
+  const record = { id: 'bundle-draft', owner, status: 'onsale', version: '1' }
+  const mock = mockApi({ existing: [record] })
+  const offer = { name: 'Run A Restaurant - 2x Taco Chair', price: 100, qty_avail: 33 }
+  const snapshot = await mock.api.listing(record.id)
+  for (const invalid of [{ ...offer, description: 'filler' }, { ...offer, qty_avail: 0 }, { ...offer, qty_avail: 1.5 }, { ...offer, price: 1.1 }]) {
+    await assert.rejects(mock.api.updateDraftOffer(record.id, snapshot, invalid), /Invalid draft offer/)
+  }
+  await assert.rejects(mock.api.updateDraftOffer(record.id, snapshot, offer), /non-draft/)
+  assert.equal(mock.mutations().length, 0)
+})
+
 async function fixture(t, items = [input()]) {
   const directory = await mkdtemp(join(tmpdir(), 'gameflip-offline-'))
   t.after(() => rm(directory, { recursive: true, force: true }))

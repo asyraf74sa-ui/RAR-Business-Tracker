@@ -213,5 +213,15 @@ export function createUploadClient(credentials, {
   async function publish(listingId, snapshot) {
     await patch(listingId, snapshot, [{ op: 'replace', path: '/status', value: 'onsale' }])
   }
-  return Object.freeze({ account, listings, listing, createDraft, allocatePhoto, uploadPhoto, attachPhoto, publish, redact: redactor.redact })
+  async function updateDraftOffer(listingId, snapshot, offer) {
+    if (!offer || Object.keys(offer).sort().join(',') !== 'name,price,qty_avail'
+        || typeof offer.name !== 'string' || !offer.name.startsWith('Run A Restaurant - ') || offer.name.length > 120
+        || !Number.isSafeInteger(offer.price) || offer.price < 1 || offer.price > 1_000_000
+        || !Number.isSafeInteger(offer.qty_avail) || offer.qty_avail < 1 || offer.qty_avail > 10_000
+        || JSON.stringify(redactor.redact(offer)) !== JSON.stringify(offer)) {
+      throw new UploadError('Invalid draft offer update.', { stop: true })
+    }
+    await patch(listingId, snapshot, ['name', 'price', 'qty_avail'].map(field => ({ op: 'replace', path: '/' + field, value: offer[field] })))
+  }
+  return Object.freeze({ account, listings, listing, createDraft, allocatePhoto, uploadPhoto, attachPhoto, publish, updateDraftOffer, redact: redactor.redact })
 }
