@@ -6,6 +6,9 @@ const duplicates = (rows, key) => rows.filter((row) => typeof row.name === 'stri
 
 export function verifyFields(listing, payload) {
   for (const [field, value] of Object.entries(payload)) {
+    // Gameflip omits an empty description on readback. Only absence and the
+    // explicitly approved empty string are equivalent; never normalize text.
+    if (field === 'description' && value === '' && listing[field] === undefined) continue
     if (!isDeepStrictEqual(listing[field], value)) throw new UploadError(`Draft verification failed: ${field} is missing or differs. Nothing will be published.`)
   }
 }

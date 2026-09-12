@@ -79,7 +79,7 @@ function mockApi({ existing = [], hook = () => undefined, execute = true, confir
       }
       if (options.method === 'PATCH') {
         assert.equal(options.headers['Content-Type'], 'application/json-patch+json')
-        if (options.headers['If-Match'] !== `"${listing.version}"`) return reject(412)
+        if (options.headers['If-Match'] !== String(listing.version)) return reject(412)
         for (const patch of JSON.parse(options.body)) {
           const fields = patch.path.slice(1).split('/')
           let current = listing
@@ -110,6 +110,96 @@ test('title generation, override and normalization', () => {
   assert.equal(titleFor({ ...input(), title: ' Special title ' }), 'Special title')
   assert.equal(normalizeTitle('  RUN A RESTAURANT - Golden Chair  '), 'run a restaurant - golden chair')
   assert.equal(validateEntry(input()).payload.description, input().description)
+})
+
+for (const etag of ['"7"', 'W/"7"']) {
+  test(`conditional publish uses raw document version with returned ETag ${etag}`, async () => {
+    const mutations = []
+    const api = createUploadClient(credentials, { execute: true, confirmed: true, sleep: async () => {},
+      fetchImpl: async (url, options) => {
+        if (url.endsWith('/account/me/profile')) return success({ owner })
+        if (options.method === 'GET') return new Response(JSON.stringify({ status: 'SUCCESS', data: {
+          id: 'etag-draft', owner, status: 'draft', version: '7',
+        } }), { headers: { 'Content-Type': 'application/json', ETag: etag } })
+        mutations.push(options)
+        return success({ id: 'etag-draft' })
+      },
+    })
+    const snapshot = await api.listing('etag-draft')
+    await api.publish('etag-draft', snapshot)
+    assert.equal(mutations.length, 1)
+    assert.equal(mutations[0].headers['If-Match'], '7')
+    assert.deepEqual(JSON.parse(mutations[0].body), [
+      { op: 'test', path: '/status', value: 'draft' },
+      { op: 'test', path: '/version', value: '7' },
+      { op: 'replace', path: '/status', value: 'onsale' },
+    ])
+  })
+}
+
+for (const etag of ['W/"8"', '*', 'garbage']) {
+  test(`mismatched or unsafe ETag ${etag} blocks mutations`, async () => {
+    const api = createUploadClient(credentials, { execute: true, confirmed: true, sleep: async () => {},
+      fetchImpl: async (url, options) => {
+        assert.equal(options.method, 'GET')
+        if (url.endsWith('/account/me/profile')) return success({ owner })
+        return new Response(JSON.stringify({ status: 'SUCCESS', data: { id: 'etag-draft', owner, status: 'draft', version: '7' } }),
+          { headers: { 'Content-Type': 'application/json', ETag: etag } })
+      },
+    })
+    await assert.rejects(api.publish('etag-draft', await api.listing('etag-draft')), /ETag does not match/)
+  })
+}
+
+for (const [start, sentAt] of [[60_500, 62_000], [89_500, 92_000], [75_000, 75_000]]) {
+  test(`OTP boundary guard sends at a safe point: ${start}`, async () => {
+    let clock = start
+    const api = createUploadClient(credentials, { now: () => clock, otpWindowGuardMs: 2000,
+      sleep: async (milliseconds) => { clock += milliseconds },
+      fetchImpl: async (_url, options) => {
+        assert.equal(options.method, 'GET')
+        assert.equal(clock, sentAt)
+        return success({ owner })
+      },
+    })
+    assert.equal(await api.account(), owner)
+  })
+}
+
+test('OTP boundary guard rejects invalid configuration', () => {
+  for (const otpWindowGuardMs of [-1, 3001, 1.5, '2000']) {
+    assert.throws(() => createUploadClient(credentials, { otpWindowGuardMs }), /Invalid OTP boundary guard/)
+  }
+})
+
+test('invalid version-header configuration is rejected', () => {
+  assert.throws(() => createUploadClient(credentials, { versionHeaderFormat: 'none' }), /Invalid version header/)
+})
+
+test('only explicitly blank descriptions permit an omitted API field', () => {
+  verifyFields({}, { description: '' })
+  verifyFields({ description: '' }, { description: '' })
+  for (const description of [null, ' ', 'unexpected', 0]) {
+    assert.throws(() => verifyFields({ description }, { description: '' }), /description/)
+  }
+  assert.throws(() => verifyFields({}, { description: 'approved text' }), /description/)
+  assert.throws(() => verifyFields({}, { name: '' }), /name/)
+})
+
+test('omitted blank description publishes and resumes without filler or replacement', async (t) => {
+  const ctx = await fixture(t, [{ ...input(), description: '' }])
+  let blockPublish = true
+  const mock = mockApi({ hook: (call, records) => {
+    if (call.method === 'GET' && call.path === '/api/v1/listing/new-1') delete records.get('new-1').description
+    if (call.method === 'PATCH' && JSON.parse(call.options.body).some(p => p.path === '/status' && p.op === 'replace') && blockPublish) return reject(400)
+  } })
+  assert.equal((await runFixture(ctx, mock)).report.summary.failed, 1)
+  blockPublish = false
+  assert.equal((await runFixture(ctx, mock)).report.summary.created, 1)
+  assert.equal(mock.records.size, 1)
+  assert.equal(mock.records.get('new-1').description, undefined)
+  const post = mock.calls.find(call => call.method === 'POST' && call.path === '/api/v1/listing')
+  assert.equal(JSON.parse(post.options.body).description, '')
 })
 for (const [value, cents] of [[1.55, 155], [5, 500], [50, 5000], [1.8, 180], ['10.00', 1000], [0.29, 29], ['0.01', 1]]) {
   test(`exact USD cents: ${value}`, () => assert.equal(usdToCents(value), cents))

@@ -29,13 +29,19 @@ export function retryDelay(headers, attempt, now) {
 
 export function createUploadClient(credentials, {
   execute = false, confirmed = false, fetchImpl = globalThis.fetch, sleep = delay,
-  now = Date.now, redactor = createRedactor(credentials), onDebug = () => {},
+  now = Date.now, otpWindowGuardMs = 0, versionHeaderFormat = 'raw-version', redactor = createRedactor(credentials), onDebug = () => {},
 } = {}) {
   let owner
   let lastRequest = -Infinity
   let lastPost = -Infinity
   let nextAllowed = 0
   const allocations = new Map()
+  const responseEtags = new WeakMap()
+  const snapshotEtags = new WeakMap()
+  if (!Number.isInteger(otpWindowGuardMs) || otpWindowGuardMs < 0 || otpWindowGuardMs > 3000) {
+    throw new UploadError('Invalid OTP boundary guard.', { stop: true })
+  }
+  if (!['etag', 'raw-version'].includes(versionHeaderFormat)) throw new UploadError('Invalid version header format.', { stop: true })
   const writeGuard = () => {
     if (!execute || !confirmed) throw new UploadError('Live writes require --execute and --confirm UPLOAD.', { stop: true })
   }
@@ -55,6 +61,13 @@ export function createUploadClient(credentials, {
       const wait = Math.max(0, lastRequest + 250 - now(), nextAllowed - now(), method === 'POST' ? lastPost + 21_000 - now() : 0)
       if (wait > 60_000) throw new UploadError('Server requests a wait longer than 60 seconds. Batch stopped; wait before retrying.', { stop: true })
       if (wait) await sleep(wait)
+      if (!storage && otpWindowGuardMs) {
+        // Let callers using a measured server clock avoid generating a code at
+        // the edge of a 30-second window. Never guess/retry alternate OTP codes.
+        const phase = ((now() % 30_000) + 30_000) % 30_000
+        if (phase < otpWindowGuardMs) await sleep(otpWindowGuardMs - phase)
+        else if (phase > 30_000 - otpWindowGuardMs) await sleep(30_000 - phase + otpWindowGuardMs)
+      }
       lastRequest = now()
       if (method === 'POST') lastPost = now()
       const headers = { ...extraHeaders }
@@ -79,7 +92,10 @@ export function createUploadClient(credentials, {
       }
       const rateWait = retryDelay(response.headers, 0, now())
       if (response.headers.has('retry-after') || response.headers.get('x-ratelimit-remaining') === '0') nextAllowed = now() + rateWait
-      if (response.ok && (storage || envelope?.status === 'SUCCESS')) return storage ? undefined : envelope
+      if (response.ok && (storage || envelope?.status === 'SUCCESS')) {
+        if (!storage) responseEtags.set(envelope, response.headers.get('etag'))
+        return storage ? undefined : envelope
+      }
       const status = response.ok ? Number(envelope?.error?.code) : response.status
       const transient = status === 429 || status >= 500
       // A definite 429 rejection can be retried. 5xx/non-JSON POST outcomes cannot.
@@ -135,8 +151,10 @@ export function createUploadClient(credentials, {
   }
   async function listing(listingId) {
     const own = await account()
-    const { data } = await request(`${ORIGIN}${PATH}/${id(listingId)}`)
+    const response = await request(`${ORIGIN}${PATH}/${id(listingId)}`)
+    const { data } = response
     if (data?.id !== listingId || data.owner !== own) throw new UploadError('Cannot verify listing ownership; batch stopped.', { stop: true })
+    snapshotEtags.set(data, responseEtags.get(response))
     return data
   }
   async function createDraft(payload) {
@@ -172,9 +190,15 @@ export function createUploadClient(credentials, {
       throw new UploadError('Refusing to mutate a foreign or non-draft listing.', { stop: true })
     }
     if (!/^[0-9]+$/.test(String(snapshot.version))) throw new UploadError('No valid listing version; cannot protect against concurrent changes.')
-    const conditions = [{ op: 'test', path: '/status', value: snapshot.status }]
+    const etag = snapshotEtags.get(snapshot) || `"${snapshot.version}"`
+    if (![ `"${snapshot.version}"`, `W/"${snapshot.version}"` ].includes(etag)) {
+      throw new UploadError('Listing ETag does not match its version; concurrent changes require review.', { stop: true })
+    }
+    // Production requires the raw numeric version despite returning a weak ETag.
+    // Also test the exact document version atomically with unpublished status.
+    const conditions = [{ op: 'test', path: '/status', value: snapshot.status }, { op: 'test', path: '/version', value: snapshot.version }]
     await request(`${ORIGIN}${PATH}/${id(listingId)}`, 'PATCH', JSON.stringify([...conditions, ...changes]), {
-      'Content-Type': 'application/json-patch+json', 'If-Match': `"${snapshot.version}"`,
+      'Content-Type': 'application/json-patch+json', 'If-Match': versionHeaderFormat === 'raw-version' ? String(snapshot.version) : etag,
     })
   }
   async function attachPhoto(listingId, photoId, snapshot) {
