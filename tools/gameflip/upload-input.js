@@ -50,16 +50,16 @@ export function validateEntry(item) {
   const allowed = new Set(['name', 'title', 'description', 'price_usd', 'qty_avail', 'image'])
   if (Object.keys(item).some((key) => !allowed.has(key))) throw new UploadError('Entry contains unsupported fields. Only name, title, description, price_usd, qty_avail and image are accepted.')
   const title = titleFor(item)
-  if (typeof item.description !== 'string' || !item.description.trim() || item.description.length > 5000
+  if (typeof item.description !== 'string' || item.description.length > 5000
       || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(item.description)) {
-    throw new UploadError('description must be non-empty text, at most 5,000 characters. Its supplied text is preserved.')
+    throw new UploadError('description must be an explicit string, at most 5,000 characters. Its supplied text (including empty text) is preserved.')
   }
   if (!Number.isInteger(item.qty_avail) || item.qty_avail < 1 || item.qty_avail > LIMITS.quantity) {
     throw new UploadError('qty_avail must be an integer from 1 to 10,000 (tool safety cap).')
   }
-  if (typeof item.image !== 'string' || !item.image.trim() || controls.test(item.image)
-      || /^[a-z][a-z\d+.-]*:\/\//i.test(item.image) || /^(?:\\\\|\/\/)/.test(item.image)) {
-    throw new UploadError('image must be a local file path, not a URL or network share.')
+  if (item.image !== undefined && (typeof item.image !== 'string' || !item.image.trim() || controls.test(item.image)
+      || /^[a-z][a-z\d+.-]*:\/\//i.test(item.image) || /^(?:\\\\|\/\/)/.test(item.image))) {
+    throw new UploadError('When supplied, image must be a local file path, not a URL or network share. Omit the field for no image.')
   }
   return {
     title, key: normalizeTitle(title), imagePath: item.image,

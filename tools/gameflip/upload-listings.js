@@ -13,7 +13,7 @@ export const HELP = `Standalone Gameflip bulk listing uploader (default: READ-ON
   npm run gameflip:upload -- --file tools/gameflip/listings.json --execute --confirm UPLOAD
 
 Options:
-  --file PATH          Required input JSON; images resolve relative to this file.
+  --file PATH          Required input JSON; optional images resolve relative to this file.
   --execute            Enable live draft/photo/publish operations only with confirmation.
   --confirm UPLOAD     Additional explicit live confirmation (case-sensitive).
   --allow-duplicate    Permit existing account titles; never bypass input/journal guards.
@@ -21,7 +21,8 @@ Options:
   --help               No credentials or network needed.
 
 Keep tools/gameflip/runs/ for recovery. Never delete it to force a retry.
-Live mode creates drafts first and publishes only after field/photo verification.
+Live mode creates drafts first and verifies fields plus any explicitly supplied photo.
+Omitting image skips all photo operations. Dry-run is not server-side publish validation.
 `
 
 export function parseUploadArgs(args) {

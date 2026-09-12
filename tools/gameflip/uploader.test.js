@@ -15,6 +15,7 @@ const credentials = { apiKey: 'offline_mock_key', otpSecret: 'GEZDGNBVGY3TQOJQGE
 const owner = 'offline:owner'
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jO9sAAAAASUVORK5CYII=', 'base64')
 const input = (name = 'Golden Chair') => ({ name, description: ' Exact supplied text.\nSecond line. ', price_usd: 1.55, qty_avail: 20, image: './product.png' })
+const noImage = (name) => { const item = input(name); delete item.image; return item }
 const success = (data, extra = {}) => new Response(JSON.stringify({ status: 'SUCCESS', data, ...extra }), { status: 200, headers: { 'Content-Type': 'application/json' } })
 const reject = (status, headers = {}) => new Response('Remote body deliberately withheld', { status, headers })
 
@@ -122,7 +123,7 @@ for (const qty of [0, -1, 1.2, '12', null, 10_001]) {
 test('template uses exact observed fields and string-array tags', () => {
   assert.deepEqual(TEMPLATE.tags, ['id: other', 'type: Other'])
   assert.deepEqual(validateEntry(input()).payload, { ...TEMPLATE, name: 'Run A Restaurant - Golden Chair', description: input().description, price: 155, qty_avail: 20 })
-  for (const extras of [{ status: 'onsale' }, { photo: {} }, { api_key: 'secret' }, { owner: 'someone' }, { description: '' }, { title: '\u001b[31m' }, { image: 'https://host/x.png' }, { image: '\\\\server\\x.png' }]) {
+  for (const extras of [{ status: 'onsale' }, { photo: {} }, { api_key: 'secret' }, { owner: 'someone' }, { description: undefined }, { title: '\u001b[31m' }, { image: 'https://host/x.png' }, { image: '\\\\server\\x.png' }]) {
     assert.throws(() => validateEntry({ ...input(), ...extras }), UploadError)
   }
 })
@@ -158,6 +159,120 @@ test('dry-run performs zero POST, PATCH, PUT or journal writes', async (t) => {
   const { report } = await runFixture(ctx, mock, { execute: false, confirmed: false })
   assert.equal(report.summary.wouldCreate, 1)
   assert.equal(mock.mutations().length, 0)
+})
+
+test('image omission is valid but explicit empty, null and invalid paths are not', () => {
+  const entry = validateEntry(noImage())
+  assert.equal(entry.imagePath, undefined)
+  assert.ok(!('photo' in entry.payload) && !('cover_photo' in entry.payload))
+  for (const image of ['', ' ', null, false, 3, {}, 'https://host/product.png']) {
+    assert.throws(() => validateEntry({ ...noImage(), image }), UploadError)
+  }
+})
+
+test('explicit empty description is preserved; missing, non-text and unsafe descriptions fail', () => {
+  assert.equal(validateEntry({ ...noImage(), description: '' }).payload.description, '')
+  for (const description of [undefined, null, false, 1, {}, 'x'.repeat(5001), 'bad\u0000text']) {
+    assert.throws(() => validateEntry({ ...noImage(), description }), UploadError)
+  }
+})
+
+test('29 no-image entries dry-run without image access, stock clamping or any writes', async (t) => {
+  const quantities = [2, 14, 2, 2, 2, 2, 2, 5, 2, 2, 3, 2, 2, 5, 6, 2, 117, 2, 3, 66, 6, 2, 491, 507, 282, 146, 30, 48, 179]
+  const ctx = await fixture(t, quantities.map((qty_avail, index) => ({ ...noImage(`Fixture ${index}`), qty_avail, description: index < 8 ? '' : 'Supplied description.' })))
+  ctx.journal.save = () => assert.fail('Dry-run cannot write the journal')
+  const mock = mockApi({ execute: false, confirmed: false })
+  const { plan, report, logs } = await runFixture(ctx, mock, { execute: false, confirmed: false, readImage: () => assert.fail('No image file should be accessed') })
+  assert.deepEqual(plan.plans.map((entry) => entry.payload.qty_avail), quantities)
+  assert.ok(plan.plans.every((entry) => entry.images.length === 0))
+  assert.deepEqual(report.summary, { created: 0, draftsCreated: 0, wouldCreate: 29, wouldResume: 0, skipped: 0, invalid: 0, failed: 0, notAttempted: 0 })
+  assert.equal(mock.mutations().length, 0)
+  assert.equal(logs.filter((line) => line.includes('no image (photo workflow omitted)')).length, 29)
+})
+
+test('mock no-image creation skips all photo allocation, upload and cover patches', async (t) => {
+  const ctx = await fixture(t, [noImage()])
+  const mock = mockApi()
+  const { report } = await runFixture(ctx, mock)
+  assert.equal(report.summary.created, 1)
+  assert.deepEqual(mock.mutations().map((call) => [call.method, call.path]), [['POST', '/api/v1/listing'], ['PATCH', '/api/v1/listing/new-1']])
+  const payload = JSON.parse(mock.mutations()[0].options.body)
+  assert.ok(!('photo' in payload) && !('cover_photo' in payload))
+  assert.deepEqual(mock.records.get('new-1').photo, {})
+  assert.equal(mock.records.get('new-1').cover_photo, undefined)
+  assert.equal(ctx.journal.get(ctx.entries[0].key).photoId, undefined)
+  assert.equal(ctx.journal.get(ctx.entries[0].key).stage, 'published')
+})
+
+test('mixed mock batch uploads only the explicitly supplied image', async (t) => {
+  const ctx = await fixture(t, [noImage('No image'), input('With image')])
+  const mock = mockApi()
+  assert.equal((await runFixture(ctx, mock)).report.summary.created, 2)
+  assert.equal(mock.calls.filter((call) => call.path.endsWith('/photo')).length, 1)
+  assert.equal(mock.calls.filter((call) => call.method === 'PUT').length, 1)
+  assert.equal(mock.records.get('new-1').cover_photo, undefined)
+  verifyPhoto(mock.records.get('new-2'), 'photo-1')
+})
+
+test('explicit missing image still prevents creation after making images optional', async (t) => {
+  const ctx = await fixture(t, [{ ...input(), image: './missing.png' }])
+  const mock = mockApi()
+  const { report } = await runFixture(ctx, mock)
+  assert.equal(report.summary.invalid, 1)
+  assert.equal(mock.mutations().length, 0)
+})
+
+test('no-image publish rejection retains and resumes the same mock draft without photos', async (t) => {
+  const ctx = await fixture(t, [noImage()])
+  let rejectPublish = true
+  const mock = mockApi({ hook: (call) => call.method === 'PATCH' && rejectPublish ? reject(400) : undefined })
+  const first = await runFixture(ctx, mock)
+  assert.equal(first.report.summary.failed, 1)
+  assert.equal(mock.records.get('new-1').status, 'draft')
+  assert.equal(ctx.journal.get(ctx.entries[0].key).stage, 'publish_pending')
+  rejectPublish = false
+  ctx.journal = await openJournal(ctx.runs, owner)
+  const second = await runFixture(ctx, mock)
+  assert.equal(second.report.summary.created, 1)
+  assert.equal(mock.calls.filter((call) => call.method === 'POST').length, 1)
+  assert.ok(mock.calls.every((call) => !call.path.endsWith('/photo') && call.method !== 'PUT'))
+})
+
+test('no-image recovery confirms a previous mock publish using GET only', async (t) => {
+  const ctx = await fixture(t, [noImage()])
+  const mock = mockApi()
+  const plan = await planUpload(ctx.entries, { ...ctx, api: mock.api })
+  const id = 'previous'
+  mock.records.set(id, { ...plan.plans[0].payload, id, owner, status: 'onsale', version: '2' })
+  await ctx.journal.save(ctx.entries[0].key, { title: ctx.entries[0].title, fingerprint: plan.plans[0].fingerprint, listingId: id, stage: 'publish_pending' })
+  const { report } = await runFixture(ctx, mock)
+  assert.equal(report.summary.created, 1)
+  assert.equal(report.summary.draftsCreated, 0)
+  assert.equal(mock.mutations().length, 0)
+})
+
+test('adding or removing an image cannot bypass recovery fingerprint verification', async (t) => {
+  for (const originallyWithImage of [true, false]) {
+    const ctx = await fixture(t, [originallyWithImage ? input() : noImage()])
+    const mock = mockApi({ hook: (call) => ['PUT', 'PATCH'].includes(call.method) ? reject(400) : undefined })
+    assert.equal((await runFixture(ctx, mock)).report.summary.failed, 1)
+    ctx.entries = [{ index: 0, ...validateEntry(originallyWithImage ? noImage() : input()) }]
+    const before = mock.mutations().length
+    const { report } = await runFixture(ctx, mock)
+    assert.equal(report.summary.invalid, 1)
+    assert.match(report.results[0].reason, /Input or image changed/)
+    assert.equal(mock.mutations().length, before)
+  }
+})
+
+test('server rejection of an empty description never generates replacement text or retries creation', async (t) => {
+  const ctx = await fixture(t, [{ ...noImage(), description: '' }])
+  const mock = mockApi({ hook: (call) => call.method === 'POST' ? reject(400) : undefined })
+  const { report } = await runFixture(ctx, mock)
+  assert.equal(report.summary.failed, 1)
+  assert.equal(mock.mutations().length, 1)
+  assert.equal(JSON.parse(mock.mutations()[0].options.body).description, '')
+  assert.equal(ctx.journal.get(ctx.entries[0].key).stage, 'create_rejected')
 })
 test('confirmation and transport independently gate every write', async (t) => {
   const ctx = await fixture(t)

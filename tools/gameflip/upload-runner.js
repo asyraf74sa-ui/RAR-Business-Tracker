@@ -42,8 +42,9 @@ export async function planUpload(entries, { file, api, journal, allowDuplicate =
     }
     try {
       if (entry.validationError) throw new UploadError(entry.validationError)
-      // One image now; the pipeline operates on a collection so it can grow safely later.
-      const images = [await readImage(file, entry.imagePath)]
+      // Omission is intentional: no placeholder, copied photo or file access.
+      // An explicitly supplied image remains mandatory for this entry/recovery.
+      const images = entry.imagePath === undefined ? [] : [await readImage(file, entry.imagePath)]
       const digest = fingerprint(entry, images)
       if (saved?.listingId && saved.fingerprint !== digest) throw new UploadError('Input or image changed since draft creation. Review the existing draft; no replacement will be created.')
       if (saved?.listingId) {
@@ -52,7 +53,7 @@ export async function planUpload(entries, { file, api, journal, allowDuplicate =
         if (!unpublished(snapshot) && !(snapshot.status === 'onsale' && saved.stage === 'publish_pending')) {
           throw new UploadError('Retained listing is no longer an unpublished draft; manual review required.', { stop: true })
         }
-        if (snapshot.status === 'onsale') verifyPhoto(snapshot, saved.photoId)
+        if (snapshot.status === 'onsale' && images.length) verifyPhoto(snapshot, saved.photoId)
       }
       Object.assign(result, { action: saved?.listingId ? 'RESUME' : 'CREATE', images, fingerprint: digest, saved, listingId: saved?.listingId })
     } catch (error) {
@@ -88,7 +89,7 @@ export async function runUpload(plan, { api, journal, execute = false, confirmed
     }
     if (!live) {
       const cents = entry.payload.price
-      log(`  ${entry.action}: $${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')} — qty ${entry.payload.qty_avail}; image OK`)
+      log(`  ${entry.action}: $${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')} — qty ${entry.payload.qty_avail}; ${entry.images.length ? 'image OK' : 'no image (photo workflow omitted)'}`)
       continue
     }
     if (halted) { Object.assign(result, { action: 'NOT_ATTEMPTED', reason: 'Batch stopped for safety.' }); log('  NOT ATTEMPTED: batch stopped for safety.'); continue }
@@ -126,14 +127,14 @@ export async function runUpload(plan, { api, journal, execute = false, confirmed
       let snapshot = await api.listing(state.listingId)
       verifyFields(snapshot, entry.payload)
       if (snapshot.status === 'onsale' && ['publish_pending', 'published'].includes(state.stage)) {
-        verifyPhoto(snapshot, state.photoId)
+        if (entry.images.length) verifyPhoto(snapshot, state.photoId)
         await save({ stage: 'published' })
         result.action = 'SUCCESS'
         log(`  SUCCESS: previous publish confirmed (id: ${state.listingId}).`)
         continue
       }
       if (!unpublished(snapshot)) throw new UploadError('Expected an unpublished draft; unexpected status requires manual review.', { stop: true })
-      if (!['photo_uploaded', 'photo_attached', 'publish_pending'].includes(state.stage)) {
+      if (entry.images.length && !['photo_uploaded', 'photo_attached', 'publish_pending'].includes(state.stage)) {
         stage = 'allocate photo'
         await save({ stage: 'photo_pending' })
         const allocation = await api.allocatePhoto(state.listingId)
@@ -143,7 +144,7 @@ export async function runUpload(plan, { api, journal, execute = false, confirmed
         await save({ stage: 'photo_uploaded' })
         log('  image uploaded')
       }
-      if (state.stage === 'photo_uploaded') {
+      if (entry.images.length && state.stage === 'photo_uploaded') {
         stage = 'associate photo and cover'
         snapshot = await api.listing(state.listingId)
         verifyFields(snapshot, entry.payload)
@@ -153,7 +154,7 @@ export async function runUpload(plan, { api, journal, execute = false, confirmed
       stage = 'verify before publish'
       snapshot = await api.listing(state.listingId)
       verifyFields(snapshot, entry.payload)
-      verifyPhoto(snapshot, state.photoId)
+      if (entry.images.length) verifyPhoto(snapshot, state.photoId)
       if (!unpublished(snapshot)) throw new UploadError('Draft status changed before publishing.', { stop: true })
       stage = 'publish'
       await save({ stage: 'publish_pending' })
@@ -161,7 +162,7 @@ export async function runUpload(plan, { api, journal, execute = false, confirmed
       stage = 'verify published'
       snapshot = await api.listing(state.listingId)
       verifyFields(snapshot, entry.payload)
-      verifyPhoto(snapshot, state.photoId)
+      if (entry.images.length) verifyPhoto(snapshot, state.photoId)
       if (snapshot.status !== 'onsale') throw new UploadError('Publish not confirmed; draft ID retained. Review before retrying.')
       await save({ stage: 'published' })
       result.action = 'SUCCESS'
